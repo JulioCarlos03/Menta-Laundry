@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: mentalaundry-api
+    runtime: node
+    rootDir: tintoreria-backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: USE_LEGACY_DEMO_SERVER
+        value: "false"

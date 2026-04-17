@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="menta-api-base" content="" />
+  <title>Tintorería Express</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="app-logo">TE</div>
+      <div class="app-brand">
+        <div class="app-name">Tintorería Express</div>
+        <div class="app-subtitle">Domicilio + Local</div>
+      </div>
+    </div>
+
+    <div class="topbar-right">
+      <button id="darkModeToggle" class="icon-btn" type="button" title="Modo claro/oscuro">🌓</button>
+      <button id="logoutBtn" class="icon-btn" type="button" title="Salir">⎋</button>
+    </div>
+  </header>
+
+  <!-- AUTH VIEW -->
+  <section id="authView" class="auth-view">
+    <div class="auth-card">
+      <h2>Iniciar sesión</h2>
+      <div class="auth-subtitle">Accede a tu cuenta (cliente / gestor / repartidor / cajera).</div>
+
+      <div id="loginMessage" class="auth-message auth-message-error" style="display:none;"></div>
+
+      <form id="loginForm" class="auth-form">
+        <div class="field-group">
+          <label>Correo electrónico</label>
+          <input id="loginEmail" type="email" placeholder="correo@ejemplo.com" required />
+        </div>
+
+        <div class="field-group">
+          <label>Contraseña</label>
+          <input id="loginPassword" type="password" placeholder="••••••••" required />
+        </div>
+
+        <button class="btn btn-primary" type="submit">Entrar</button>
+      </form>
+
+      <div class="auth-hint">
+        <strong>Gestor:</strong> admin@tintoreria.com / admin123<br />
+        <strong>Cliente:</strong> cliente@demo.com / cliente123<br />
+        <strong>Repartidor Sur:</strong> repartidor.sur@demo.com / 123456<br />
+        <strong>Repartidor DN:</strong> repartidor.dn@demo.com / 123456<br />
+        <strong>Cajera:</strong> cajera@tintoreria.com / cajera123
+      </div>
+
+      <hr style="border:none;border-top:1px solid rgba(148,163,184,.25); margin:14px 0;" />
+
+      <h2 style="margin-top:0.4rem;">Crear cuenta</h2>
+      <div class="auth-subtitle">Solo crea cuentas de cliente (modo demo).</div>
+
+      <div id="registerMessage" class="auth-message auth-message-error" style="display:none;"></div>
+
+      <form id="registerForm" class="auth-form">
+        <div class="field-group">
+          <label>Nombre completo</label>
+          <input id="registerName" type="text" placeholder="Tu nombre" required />
+        </div>
+
+        <div class="field-group">
+          <label>Correo electrónico</label>
+          <input id="registerEmail" type="email" placeholder="correo@ejemplo.com" required />
+        </div>
+
+        <div class="field-group">
+          <label>Contraseña</label>
+          <input id="registerPassword" type="password" placeholder="mínimo 6 caracteres" required />
+        </div>
+
+        <button class="btn btn-primary" type="submit">Registrarme</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- APP VIEW -->
+  <main id="appView" class="app-view" style="display:none;">
+    <section class="app-header-section">
+      <div class="welcome-block">
+        <div class="welcome-text">
+          <h2 id="welcomeTitle">Hola</h2>
+          <div id="welcomeSubtitle">Gestiona tus pedidos de tintorería de forma rápida.</div>
+        </div>
+        <div class="role-badge">Rol: <span id="roleLabel">cliente</span></div>
+      </div>
+    </section>
+
+    <!-- SCREENS -->
+    <section class="screens-container">
+
+      <!-- HOME -->
+      <section id="screenHome" class="screen screen-active">
+
+        <!-- Cliente: próximo pedido -->
+        <div id="nextOrderCard" class="card card-status">
+          <div class="card-title">Tu pedido activo</div>
+          <div class="card-line">
+            <span class="card-label">Estado:</span>
+            <span id="nextOrderStatus" class="status-pill status-empty">Sin pedidos</span>
+          </div>
+          <div id="nextOrderInfo" class="card-secondary">Cuando crees un pedido, verás aquí su estado.</div>
+        </div>
+
+        <!-- Cliente: crear pedido -->
+        <div id="quickOrderCard" class="card" style="margin-top:0.8rem;">
+          <div class="card-title">Ordenar recogida a domicilio</div>
+          <div class="card-secondary">Agendar (8:00 AM - 10:00 PM). Máximo 20 pedidos/día (demo).</div>
+
+          <form id="quickOrderForm" class="stacked-form" style="margin-top:0.7rem;">
+            <div class="field-group">
+              <label>Zona</label>
+              <select id="homeZone" required>
+                <option value="Distrito Nacional">Distrito Nacional</option>
+                <option value="Sur">Sur</option>
+                <option value="Este">Este</option>
+                <option value="Oeste">Oeste</option>
+              </select>
+            </div>
+
+            <div class="field-group">
+              <label>Dirección (obligatoria)</label>
+              <input id="homeAddress" type="text" placeholder="Ej: Calle 27 #14, Naco" required />
+            </div>
+
+            <div class="field-row">
+              <div class="field-group" style="flex:1;">
+                <label>Fecha</label>
+                <input id="homeDate" type="date" required />
+              </div>
+              <div class="field-group" style="flex:1;">
+                <label>Hora</label>
+                <input id="homeTime" type="time" required />
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label>Tipo de servicio</label>
+              <select id="homePickupType" required>
+                <option>Recogida a domicilio</option>
+                <option>Entrega a domicilio</option>
+                <option>Solo planchado</option>
+              </select>
+            </div>
+
+            <div class="field-group">
+              <label>Paquete principal</label>
+              <select id="homeServicePack" required>
+                <option>Lavado + Planchado</option>
+                <option>Lavado delicado</option>
+                <option>Solo Planchado</option>
+                <option>Tintorería (seco)</option>
+              </select>
+            </div>
+
+            <div class="field-group">
+              <label>Extras</label>
+              <div class="chip-group">
+                <label class="chip"><input type="checkbox" value="Quitar manchas difíciles" /> Manchas</label>
+                <label class="chip"><input type="checkbox" value="Cambio de cierre (zipper)" /> Zipper</label>
+                <label class="chip"><input type="checkbox" value="Reparación costura básica" /> Costura</label>
+                <label class="chip"><input type="checkbox" value="Aromatizante premium" /> Aroma</label>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label>Notas</label>
+              <textarea id="homeNotes" rows="3" placeholder="Ej: tocar el timbre, dejar en recepción..."></textarea>
+            </div>
+
+            <button class="btn btn-primary" type="submit">Confirmar pedido</button>
+          </form>
+        </div>
+
+        <!-- GESTOR HOME PANEL -->
+        <div id="gestorHomePanel" class="role-panel" style="display:none;">
+          <div class="role-summary-row">
+            <div class="role-summary-card">
+              <div class="role-summary-label">Pedidos</div>
+              <div id="gestorActiveCount" class="role-summary-value">0</div>
+            </div>
+            <div class="role-summary-card">
+              <div class="role-summary-label">Hoy</div>
+              <div id="gestorTodayCount" class="role-summary-value">0</div>
+            </div>
+            <div class="role-summary-card">
+              <div class="role-summary-label">Clientes</div>
+              <div id="gestorClientsCount" class="role-summary-value">0</div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:0.75rem;">
+            <div class="card-title">Pedidos pendientes de asignar (por zona)</div>
+            <div class="role-table-wrapper" style="margin-top:0.5rem;">
+              <table class="role-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Cliente</th>
+                    <th>Zona</th>
+                    <th>Fecha</th>
+                    <th>Estado</th>
+                    <th>Repartidor</th>
+                    <th>Factura</th>
+                    <th>Detalles</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="gestorAssignBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <!-- tabla asignados se inserta desde app.js -->
+        </div>
+
+        <!-- REPARTIDOR PANEL -->
+        <div id="repartidorHomePanel" class="role-panel" style="display:none;">
+          <div class="card">
+            <div class="card-title">Pedidos asignados</div>
+            <div class="card-secondary" id="repartidorMetaText">Meta 0/30</div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Mis pedidos</div>
+            <div class="role-table-wrapper" style="margin-top:0.5rem;">
+              <table class="role-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Cliente</th>
+                    <th>Zona</th>
+                    <th>Dirección</th>
+                    <th>Fecha</th>
+                    <th>Lbs</th>
+                    <th>Estado</th>
+                    <th>Factura</th>
+                    <th>Estados</th>
+                  </tr>
+                </thead>
+                <tbody id="repartidorOrdersBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- CAJERA PANEL -->
+        <div id="cashierHomePanel" class="role-panel" style="display:none;">
+          <div class="card">
+            <div class="card-title">Local (Caja)</div>
+            <div class="card-secondary">Registrar pedidos cuando el cliente entrega en tienda.</div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Crear pedido en local</div>
+
+            <form id="cashierForm" class="stacked-form" style="margin-top:0.7rem;">
+              <div class="field-group">
+                <label>Nombre del cliente</label>
+                <input id="cashierName" type="text" placeholder="Ej: Julio Ogando" required />
+              </div>
+
+              <div class="field-row">
+                <div class="field-group" style="flex:1;">
+                  <label>Teléfono</label>
+                  <input id="cashierPhone" type="text" placeholder="Ej: 809-000-0000" required />
+                </div>
+                <div class="field-group" style="flex:1;">
+                  <label>Correo (opcional)</label>
+                  <input id="cashierEmail" type="email" placeholder="correo@ejemplo.com" />
+                </div>
+              </div>
+
+              <div class="field-group">
+                <label>Libras (se pesa en tienda)</label>
+                <input id="cashierLbs" type="number" min="0" step="0.1" placeholder="Ej: 12.5" required />
+              </div>
+
+              <div class="field-group">
+                <label>Paquete principal</label>
+                <select id="cashierPack" required>
+                  <option>Lavado + Planchado</option>
+                  <option>Lavado delicado</option>
+                  <option>Solo Planchado</option>
+                  <option>Tintorería (seco)</option>
+                </select>
+              </div>
+
+              <div class="field-group">
+                <label>Extras</label>
+                <div class="chip-group">
+                  <label class="chip"><input type="checkbox" value="Quitar manchas difíciles" /> Manchas</label>
+                  <label class="chip"><input type="checkbox" value="Cambio de cierre (zipper)" /> Zipper</label>
+                  <label class="chip"><input type="checkbox" value="Reparación costura básica" /> Costura</label>
+                  <label class="chip"><input type="checkbox" value="Aromatizante premium" /> Aroma</label>
+                </div>
+              </div>
+
+              <div class="field-group">
+                <label>Notas</label>
+                <textarea id="cashierNotes" rows="3" placeholder="Ej: entrega urgente, cliente VIP..."></textarea>
+              </div>
+
+              <button class="btn btn-primary" type="submit">Crear pedido local</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- ACTIVIDAD (cliente) -->
+      <section id="screenActivity" class="screen">
+        <div class="card">
+          <div class="card-title">Tu actividad</div>
+          <ul id="activityTimeline" class="timeline" style="margin-top:0.4rem;"></ul>
+        </div>
+      </section>
+
+      <!-- PREMIUM (cliente) -->
+      <section id="screenPremium" class="screen">
+        <div class="card premium-hero">
+          <div class="card-title">Clientes Premium</div>
+          <div class="premium-text">
+            Próximamente: suscripción mensual/anual con beneficios y recompensas.
+          </div>
+          <ul class="premium-list">
+            <li>✅ Puntos por pedidos</li>
+            <li>✅ Promos y prioridad</li>
+            <li>✅ Lavado gratis cada X libras</li>
+          </ul>
+          <div class="premium-pricing">
+            <div class="premium-price">RD$ 499 <span>/ mes</span></div>
+            <button class="btn btn-primary btn-small" type="button">Próximamente</button>
+          </div>
+          <div class="premium-note">*Modo demo (sin cobro real).</div>
+        </div>
+      </section>
+
+      <!-- REPARTIDORES (gestor) -->
+      <section id="screenRiders" class="screen">
+        <div class="card">
+          <div class="card-title">Actividad de repartidores</div>
+          <div class="card-secondary">Metas diarias por zona (30 pedidos).</div>
+        </div>
+        <div id="ridersActivity" style="margin-top:0.75rem; display:flex; flex-direction:column; gap:.75rem;"></div>
+      </section>
+
+      <!-- LOCAL (gestor) -->
+      <section id="screenLocal" class="screen">
+        <div class="card">
+          <div class="card-title">Pedidos del Local</div>
+          <div class="card-secondary">Pedidos creados por la cajera en tienda.</div>
+        </div>
+
+        <div class="card" style="margin-top:0.75rem;">
+          <div class="card-title">Lista de pedidos (Local)</div>
+          <div class="role-table-wrapper" style="margin-top:0.5rem;">
+            <table class="role-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Cliente</th>
+                  <th>Teléfono</th>
+                  <th>Lbs</th>
+                  <th>Paquete</th>
+                  <th>Estado</th>
+                  <th>Factura</th>
+                  <th>Detalles</th>
+                </tr>
+              </thead>
+              <tbody id="localOrdersBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- CUENTA -->
+      <section id="screenAccount" class="screen">
+        <div class="card">
+          <div class="card-title">Cuenta</div>
+          <div class="card-secondary">Administra tu información (modo demo).</div>
+
+          <form id="profileForm" class="stacked-form" style="margin-top:0.7rem;">
+            <div class="field-group">
+              <label>Nombre</label>
+              <input id="profileName" type="text" />
+            </div>
+
+            <div class="field-group">
+              <label>Correo</label>
+              <input id="profileEmail" type="email" disabled />
+            </div>
+
+            <div class="field-group">
+              <label>Rol</label>
+              <input id="profileRole" type="text" disabled />
+            </div>
+
+            <button class="btn btn-primary" type="submit">Guardar</button>
+          </form>
+
+          <div style="margin-top:0.75rem;">
+            <div class="card-title">Ayuda</div>
+            <ul class="help-list">
+              <li>• Soporte: soporte@tintoreria.com</li>
+              <li>• Horario: 8:00 AM - 10:00 PM</li>
+              <li>• Capacidad: 20 pedidos/día (demo)</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+    </section>
+  </main>
+
+  <!-- BOTTOM NAV -->
+  <nav class="bottom-nav">
+    <button class="nav-item nav-item-active" data-screen-target="screenHome" type="button">
+      <div class="nav-icon">🏠</div>
+      <div class="nav-label">Inicio</div>
+    </button>
+
+    <!-- Cliente -->
+    <button class="nav-item" data-screen-target="screenActivity" type="button">
+      <div class="nav-icon">🕒</div>
+      <div class="nav-label">Actividad</div>
+    </button>
+
+    <button class="nav-item" data-screen-target="screenPremium" type="button">
+      <div class="nav-icon">💎</div>
+      <div class="nav-label">Premium</div>
+    </button>
+
+    <!-- Gestor -->
+    <button id="navRiders" class="nav-item" data-screen-target="screenRiders" type="button" style="display:none;">
+      <div class="nav-icon">🧑‍🔧</div>
+      <div class="nav-label">Repartidores</div>
+    </button>
+
+    <button id="navLocal" class="nav-item" data-screen-target="screenLocal" type="button" style="display:none;">
+      <div class="nav-icon">🏬</div>
+      <div class="nav-label">Local</div>
+    </button>
+
+    <button class="nav-item" data-screen-target="screenAccount" type="button">
+      <div class="nav-icon">👤</div>
+      <div class="nav-label">Cuenta</div>
+    </button>
+  </nav>
+
+  <!-- MODAL FACTURA -->
+  <div id="invoiceModal" class="invoice-modal" style="display:none;">
+    <div class="invoice-backdrop"></div>
+
+    <div class="invoice-dialog" id="invoicePrintArea">
+      <div class="invoice-header">
+        <div>
+          <div class="invoice-title">Factura</div>
+          <div id="invoiceSubtitle" class="invoice-subtitle">Pedido #—</div>
+        </div>
+
+        <div style="display:flex; gap:8px;">
+          <button id="invoicePrintBtn" class="icon-btn" type="button" title="Imprimir">🖨️</button>
+          <button id="invoiceCloseBtn" class="icon-btn" type="button">✕</button>
+        </div>
+      </div>
+
+      <div class="invoice-body">
+        <div class="invoice-brand-row">
+          <div class="invoice-brand">
+            <div class="invoice-brand-mark">TE</div>
+            <div>
+              <div id="invoiceBrandName" class="invoice-brand-name">Tintoreria Express</div>
+              <div id="invoiceBusiness" class="invoice-brand-copy">Cuidado textil y prendas finas</div>
+            </div>
+          </div>
+          <div id="invoiceMeta" class="invoice-meta-card"></div>
+        </div>
+        <div class="invoice-grid">
+          <div class="invoice-block">
+            <h4>Cliente</h4>
+          <div id="invoiceClient" class="invoice-text">—</div>
+        </div>
+
+        <div class="invoice-block">
+          <h4>Servicio</h4>
+          <div id="invoiceSummary" class="invoice-text">-</div>
+        </div>
+        </div>
+
+        <div class="invoice-block">
+          <h4>Detalle</h4>
+          <table class="invoice-table">
+            <thead>
+              <tr>
+                <th>Concepto</th>
+                <th>Cant.</th>
+                <th>Precio</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="invoiceLines"></tbody>
+          </table>
+        </div>
+
+        <div class="invoice-totals">
+          <div class="invoice-totals-row">
+            <span>Subtotal</span>
+            <span id="invoiceSubtotal">RD$ 0.00</span>
+          </div>
+          <div class="invoice-totals-row">
+            <span>ITBIS (18%)</span>
+            <span id="invoiceItbis">RD$ 0.00</span>
+          </div>
+          <div class="invoice-totals-row invoice-totals-strong">
+            <span>Total</span>
+            <span id="invoiceTotal">RD$ 0.00</span>
+          </div>
+        </div>
+
+        <div class="invoice-footer-text" id="invoiceFooterText" style="margin-top:0.75rem;">
+          *Factura demo
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

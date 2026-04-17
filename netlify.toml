@@ -1,0 +1,8 @@
+[build]
+  base = "TINTORERIA-FRONTEND"
+  publish = "."
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
