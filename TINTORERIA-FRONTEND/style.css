@@ -4488,3 +4488,260 @@ body.theme-light .rider-notes-block{
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================================
+   PHONE-FIRST POLISH
+============================================================ */
+.auth-hint-support{
+  background:
+    linear-gradient(180deg, rgba(61,184,198,.10), rgba(47,130,178,.05)),
+    rgba(255,255,255,.03);
+}
+
+body.theme-light .auth-hint-support{
+  background:
+    linear-gradient(180deg, rgba(221,247,250,.96), rgba(242,251,252,.92)),
+    rgba(255,255,255,.90);
+}
+
+.auth-support-copy{
+  line-height: 1.6;
+}
+
+.auth-support-actions{
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.auth-support-link{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(61,184,198,.22);
+  background: rgba(61,184,198,.12);
+  color: var(--text);
+  font-size: .82rem;
+  font-weight: 800;
+  text-decoration: none;
+  transition: transform .18s ease, background .18s ease, border-color .18s ease;
+}
+
+.auth-support-link:hover{
+  transform: translateY(-1px);
+  background: rgba(61,184,198,.16);
+  border-color: rgba(61,184,198,.28);
+}
+
+@media (max-width: 760px){
+  .topbar{
+    top: 10px;
+    width: calc(100% - 16px);
+    margin-top: 10px;
+    padding: 12px 14px;
+    border-radius: 22px;
+  }
+
+  .topbar-left{
+    min-width: 0;
+  }
+
+  .topbar-right{
+    width: auto;
+    justify-content: flex-end;
+    margin-left: auto;
+  }
+
+  .app-brand{
+    min-width: 0;
+  }
+
+  .app-brand .app-name{
+    font-size: .84rem;
+    letter-spacing: .05em;
+  }
+
+  .app-brand .app-subtitle{
+    font-size: .66rem;
+  }
+
+  .icon-label{
+    display: none;
+  }
+
+  .icon-btn{
+    min-width: 44px;
+    justify-content: center;
+    padding: 10px;
+  }
+
+  .service-pill{
+    width: 100%;
+    justify-content: flex-start;
+    line-height: 1.4;
+  }
+
+  .auth-view{
+    min-height: auto;
+    align-items: flex-start;
+    padding: 22px 12px 126px;
+  }
+
+  .auth-shell{
+    gap: 16px;
+  }
+
+  .auth-card{
+    order: -1;
+    padding: 20px 16px 18px;
+    border-radius: 24px;
+  }
+
+  .auth-showcase{
+    order: 2;
+    padding: 18px 16px;
+  }
+
+  .auth-title{
+    max-width: none;
+    font-size: clamp(1.9rem, 8vw, 2.7rem);
+  }
+
+  .auth-copy{
+    font-size: .92rem;
+    line-height: 1.65;
+  }
+
+  .auth-feature-grid{
+    gap: 10px;
+  }
+
+  .auth-feature-card{
+    padding: 15px;
+  }
+
+  .preview-steps{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .auth-inline-actions,
+  .auth-support-actions{
+    flex-direction: column;
+  }
+
+  .auth-inline-btn,
+  .auth-support-link{
+    width: 100%;
+    justify-content: center;
+  }
+
+  .welcome-block,
+  .screen-heading,
+  .premium-pricing{
+    gap: 12px;
+  }
+
+  .role-badge{
+    width: 100%;
+    justify-content: center;
+  }
+
+  .app-view{
+    padding-bottom: 108px;
+  }
+
+  .role-table-wrapper{
+    margin: 0 -4px;
+    padding: 0 4px 6px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .bottom-nav{
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    gap: 4px;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    border-radius: 22px;
+  }
+
+  .nav-item{
+    min-width: 0;
+    padding: 8px 6px;
+  }
+
+  .nav-label{
+    font-size: .68rem;
+  }
+
+  .invoice-modal,
+  .detail-modal{
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 0;
+  }
+
+  .invoice-dialog,
+  .detail-dialog{
+    width: 100%;
+    max-width: none;
+    max-height: 100dvh;
+    min-height: 72dvh;
+    border-radius: 24px 24px 0 0;
+  }
+
+  .invoice-header,
+  .detail-header{
+    padding: 14px 16px;
+  }
+
+  .invoice-body,
+  .detail-body{
+    padding: 14px 16px 22px;
+  }
+
+  .invoice-table{
+    min-width: 540px;
+  }
+}
+
+@media (max-width: 520px){
+  .topbar{
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .topbar-center{
+    grid-column: 1 / -1;
+    order: 3;
+  }
+
+  .service-pill{
+    font-size: .74rem;
+    padding: 9px 12px;
+  }
+
+  .auth-view{
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .screens-container,
+  .app-header-section{
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .card,
+  .welcome-block{
+    padding: 16px;
+  }
+
+  .auth-card,
+  .auth-showcase{
+    border-radius: 22px;
+  }
+}

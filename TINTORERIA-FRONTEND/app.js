@@ -765,9 +765,9 @@ function ensureAuthEnhancements() {
         interfaz mas refinada, sobria y exclusiva.
       </p>
       <div class="auth-metrics">
-        <div class="auth-metric"><strong>4</strong><span>roles conectados</span></div>
-        <div class="auth-metric"><strong>24/7</strong><span>presencia editorial</span></div>
-        <div class="auth-metric"><strong>1</strong><span>experiencia unificada</span></div>
+        <div class="auth-metric"><strong>Pickup</strong><span>coordinado por zona</span></div>
+        <div class="auth-metric"><strong>Control</strong><span>operativo y visual</span></div>
+        <div class="auth-metric"><strong>Entrega</strong><span>con seguimiento claro</span></div>
       </div>
       <div class="auth-feature-grid">
         <div class="auth-feature-card"><span class="feature-pill">Seguimiento privado</span><p>Visualiza el estado de cada pedido con una lectura clara y elegante.</p></div>
@@ -777,7 +777,7 @@ function ensureAuthEnhancements() {
       <div class="auth-preview">
         <div class="preview-header">
           <span class="preview-label">Flujo signature</span>
-          <span class="preview-note">Demo</span>
+          <span class="preview-note">Operacion</span>
         </div>
         <div class="preview-steps">
           <div class="preview-step preview-step-active">Solicitud</div>
@@ -820,7 +820,7 @@ function ensureAuthEnhancements() {
   if (hint && !hint.querySelector(".auth-hint-title")) {
     const title = document.createElement("div");
     title.className = "auth-hint-title";
-    title.textContent = "Credenciales demo";
+    title.textContent = "Soporte de acceso";
     hint.prepend(title);
   }
 
@@ -2744,20 +2744,20 @@ function ensureAuthEnhancements() {
   const showcase = authView.querySelector(".auth-showcase");
   if (showcase) {
     showcase.innerHTML = `
-      <div class="auth-kicker">Operacion profesional</div>
-      <h1 class="auth-title">Una tintoreria clara, confiable y lista para crecer.</h1>
+      <div class="auth-kicker">Recepcion y cuidado textil</div>
+      <h1 class="auth-title">Una recepcion premium para una tintoreria que inspira confianza.</h1>
       <p class="auth-copy">
-        ${BUSINESS_PROFILE.name} organiza pedidos, seguimiento, facturacion y operacion
-        con una imagen limpia y una experiencia pensada para clientes reales.
+        ${BUSINESS_PROFILE.name} combina recogida, seguimiento, facturacion y atencion
+        con una presencia mas sobria, elegante y lista para presentarse ante terceros.
       </p>
       <div class="auth-feature-grid">
-        <div class="auth-feature-card"><span class="feature-pill">Seguimiento</span><p>Consulta el estado de cada pedido con lectura clara y ordenada.</p></div>
-        <div class="auth-feature-card"><span class="feature-pill">Operaciones</span><p>Coordina repartidores, local y clientes desde un mismo panel.</p></div>
-        <div class="auth-feature-card"><span class="feature-pill">Servicio</span><p>Trabaja por libra, por prendas o con paquetes combinados.</p></div>
+        <div class="auth-feature-card"><span class="feature-pill">Seguimiento</span><p>Consulta cada pedido con una lectura clara, limpia y profesional.</p></div>
+        <div class="auth-feature-card"><span class="feature-pill">Coordinacion</span><p>Gestiona local, repartidores y clientes desde una misma experiencia.</p></div>
+        <div class="auth-feature-card"><span class="feature-pill">Servicio</span><p>Opera por libra, por prendas o con paquetes combinados segun el caso.</p></div>
       </div>
       <div class="auth-preview">
         <div class="preview-header">
-          <span class="preview-label">Flujo operativo</span>
+          <span class="preview-label">Flujo de servicio</span>
           <span class="preview-note">${BUSINESS_PROFILE.schedule}</span>
         </div>
         <div class="preview-steps">
@@ -2777,6 +2777,39 @@ function ensureAuthEnhancements() {
   if (titles[1]) {
     titles[1].textContent = "Crear cuenta";
     titles[1].classList.add("secondary-title");
+  }
+
+  const subtitles = authCard.querySelectorAll(".auth-subtitle");
+  if (subtitles[0]) subtitles[0].textContent = "Accede con tu perfil de cliente, gestor, repartidor o cajera.";
+  if (subtitles[1]) subtitles[1].textContent = "Las cuentas nuevas de cliente se activan primero desde el correo.";
+
+  const loginGroups = qs("#loginForm")?.querySelectorAll(".field-group") || [];
+  if (loginGroups[0]) loginGroups[0].querySelector("label").textContent = "Correo electronico";
+  if (loginGroups[1]) loginGroups[1].querySelector("label").textContent = "Contrasena";
+  if (qs("#loginPassword")) qs("#loginPassword").placeholder = "Minimo 6 caracteres";
+  if (qs("#loginForm .btn")) qs("#loginForm .btn").textContent = "Entrar al panel";
+
+  const registerGroups = qs("#registerForm")?.querySelectorAll(".field-group") || [];
+  if (registerGroups[1]) registerGroups[1].querySelector("label").textContent = "Correo electronico";
+  if (registerGroups[2]) registerGroups[2].querySelector("label").textContent = "Contrasena";
+  if (qs("#registerPassword")) qs("#registerPassword").placeholder = "Minimo 6 caracteres";
+  if (qs("#registerForm .btn")) qs("#registerForm .btn").textContent = "Crear cuenta";
+
+  const hint = authCard.querySelector(".auth-hint");
+  if (hint) {
+    const supportMessage = `Hola, necesito ayuda con mi acceso en ${BUSINESS_PROFILE.name}.`;
+    hint.classList.add("auth-hint-support");
+    hint.innerHTML = `
+      <div class="auth-hint-title">Acceso asistido</div>
+      <div class="auth-support-copy">
+        Si necesitas acceso privado, verificacion o ayuda para entrar, te atendemos por WhatsApp, llamada o correo.
+      </div>
+      <div class="auth-support-actions">
+        <a class="auth-support-link" href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${encodeURIComponent(supportMessage)}" target="_blank" rel="noreferrer">WhatsApp</a>
+        <a class="auth-support-link" href="tel:+${BUSINESS_PHONE_DIGITS}">Llamar</a>
+        <a class="auth-support-link" href="mailto:${BUSINESS_PROFILE.email}">Correo</a>
+      </div>
+    `;
   }
 }
 
