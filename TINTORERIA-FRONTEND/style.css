@@ -4509,6 +4509,130 @@ body.theme-light .rider-notes-block{
   }
 }
 
+.gestor-mobile-board{
+  display: none;
+}
+
+.gestor-mobile-card{
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)),
+    rgba(10, 30, 41, .56);
+}
+
+body.theme-light .gestor-mobile-card{
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.98), rgba(242,251,252,.92)),
+    rgba(255,255,255,.96);
+}
+
+.gestor-mobile-head{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gestor-mobile-id{
+  font-size: .74rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.gestor-mobile-head h4{
+  margin: 4px 0 0;
+  font-size: 1.04rem;
+  color: var(--text);
+}
+
+.gestor-mobile-copy{
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.gestor-mobile-grid{
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gestor-mobile-grid-span{
+  grid-column: 1 / -1;
+}
+
+.gestor-mobile-label{
+  display: block;
+  margin-bottom: 4px;
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.gestor-mobile-value{
+  color: var(--text);
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.gestor-mobile-sub{
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.gestor-mobile-field{
+  margin-top: 14px;
+}
+
+.gestor-mobile-actions{
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gestor-mobile-empty{
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+}
+
+@media (max-width: 760px){
+  .gestor-desktop-table{
+    display: none !important;
+  }
+
+  .gestor-mobile-board{
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .gestor-mobile-grid{
+    grid-template-columns: 1fr;
+  }
+
+  .gestor-mobile-head{
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .gestor-mobile-actions .btn{
+    flex: 1 1 calc(50% - 4px);
+    justify-content: center;
+  }
+}
+
 /* ============================================================
    PHONE-FIRST POLISH
 ============================================================ */

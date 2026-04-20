@@ -4628,17 +4628,172 @@ function renderGestorRiderCoveragePanel({
   `;
 }
 
+function renderGestorEmptyMobileBoard(message) {
+  return `<div class="gestor-mobile-empty">${escapeHtml(message)}</div>`;
+}
+
+function renderGestorAssignMobileCards(pendientes) {
+  return pendientes
+    .map((order) => {
+      const repsByZone = repartidoresCache.filter((r) => normalizeZoneName(r.zone) === normalizeZoneName(order.zone));
+      const reps = repsByZone.length ? repsByZone : repartidoresCache;
+      const flags = getOrderHighlightFlags(order);
+      const zoneMeta = getGestorZoneValidationText(order, flags);
+
+      return `
+        <article class="gestor-mobile-card ${getGestorRowClass(order)}" data-assign-scope="${order.id}">
+          <div class="gestor-mobile-head">
+            <div>
+              <div class="gestor-mobile-id">Pedido #${order.id}</div>
+              <h4>${escapeHtml(order.userName)}</h4>
+            </div>
+            ${renderStatusBadge(order.status)}
+          </div>
+          <div class="gestor-mobile-copy">${escapeHtml(order.phone || order.email || "Sin contacto directo")}</div>
+          <div class="signal-chip-row">${renderSignalChips(order)}</div>
+          <div class="gestor-mobile-grid">
+            <div>
+              <span class="gestor-mobile-label">Zona</span>
+              <div class="gestor-mobile-value">${escapeHtml(order.zone)}</div>
+              <div class="gestor-mobile-sub">${escapeHtml(zoneMeta)}</div>
+            </div>
+            <div>
+              <span class="gestor-mobile-label">Fecha</span>
+              <div class="gestor-mobile-value">${fmtDate(order.date)} ${fmtTime(order.time)}</div>
+              <div class="gestor-mobile-sub">${flags.delayed ? "Fuera de hora programada" : "Programacion activa"}</div>
+            </div>
+          </div>
+          <div class="field-group gestor-mobile-field">
+            <label>Asignar repartidor</label>
+            <select data-assign="${order.id}">
+              <option value="">Elegir...</option>
+              ${reps.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}${normalizeZoneName(r.zone) === normalizeZoneName(order.zone) ? "" : ` (${escapeHtml(normalizeZoneName(r.zone))})`}</option>`).join("")}
+            </select>
+          </div>
+          <div class="gestor-mobile-actions">
+            <button class="btn btn-small" data-factura="${order.id}">Factura</button>
+            <button class="btn btn-small btn-outline" data-detalle="${order.id}">Detalle</button>
+            <button class="btn btn-primary btn-small" data-save="${order.id}">Asignar</button>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderGestorInProgressMobileCards(enProceso) {
+  return enProceso
+    .map((order) => {
+      const flags = getOrderHighlightFlags(order);
+      const location = getOrderLocation(order);
+      const zoneMeta = [];
+      if (location && Number.isFinite(flags.distanceFromZone)) zoneMeta.push(`${flags.distanceFromZone.toFixed(1)} km del centro`);
+      zoneMeta.push(flags.zoneMismatch ? `GPS sugiere ${flags.inferredZone}` : getGeoStatusLabel(order));
+
+      return `
+        <article class="gestor-mobile-card ${getGestorRowClass(order)}">
+          <div class="gestor-mobile-head">
+            <div>
+              <div class="gestor-mobile-id">Pedido #${order.id}</div>
+              <h4>${escapeHtml(order.userName)}</h4>
+            </div>
+            ${renderStatusBadge(order.status)}
+          </div>
+          <div class="gestor-mobile-copy">${escapeHtml(order.phone || order.email || "Sin contacto directo")}</div>
+          <div class="signal-chip-row">${renderSignalChips(order)}</div>
+          <div class="gestor-mobile-grid">
+            <div>
+              <span class="gestor-mobile-label">Zona</span>
+              <div class="gestor-mobile-value">${escapeHtml(order.zone)}</div>
+              <div class="gestor-mobile-sub">${escapeHtml(zoneMeta.join(" | "))}</div>
+            </div>
+            <div>
+              <span class="gestor-mobile-label">Repartidor</span>
+              <div class="gestor-mobile-value">${escapeHtml(order.repartidorName || "-")}</div>
+              <div class="gestor-mobile-sub">${escapeHtml(location ? getGeoStatusLabel(order) : "Coordenadas pendientes")}</div>
+            </div>
+            <div>
+              <span class="gestor-mobile-label">Direccion</span>
+              <div class="gestor-mobile-value">${escapeHtml(order.address || "Por definir")}</div>
+              <div class="gestor-mobile-sub">${escapeHtml(location ? formatCoordinatePair(location) : "Sin coordenadas registradas")}</div>
+            </div>
+            <div>
+              <span class="gestor-mobile-label">Fecha</span>
+              <div class="gestor-mobile-value">${fmtDate(order.date)} ${fmtTime(order.time)}</div>
+              <div class="gestor-mobile-sub">${flags.delayed ? "Requiere seguimiento inmediato" : "Ruta en seguimiento"}</div>
+            </div>
+          </div>
+          <div class="gestor-mobile-actions">
+            <button class="btn btn-small" data-factura="${order.id}">Factura</button>
+            <button class="btn btn-small btn-outline" data-detalle="${order.id}">Detalle</button>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderGestorLocalMobileCards(localOrders) {
+  return localOrders
+    .map((order) => `
+      <article class="gestor-mobile-card">
+        <div class="gestor-mobile-head">
+          <div>
+            <div class="gestor-mobile-id">Pedido #${order.id}</div>
+            <h4>${escapeHtml(order.userName)}</h4>
+          </div>
+          ${renderStatusBadge(order.status)}
+        </div>
+        <div class="gestor-mobile-grid">
+          <div>
+            <span class="gestor-mobile-label">Telefono</span>
+            <div class="gestor-mobile-value">${escapeHtml(order.phone || "--")}</div>
+          </div>
+          <div>
+            <span class="gestor-mobile-label">Libras</span>
+            <div class="gestor-mobile-value">${Number(order.lbs || 0).toFixed(1)} lb</div>
+          </div>
+          <div class="gestor-mobile-grid-span">
+            <span class="gestor-mobile-label">Paquete</span>
+            <div class="gestor-mobile-value">${escapeHtml(getOrderPacks(order).join(", ") || order.pack || "Servicio general")}</div>
+          </div>
+        </div>
+        <div class="gestor-mobile-actions">
+          <button class="btn btn-small" data-factura="${order.id}">Factura</button>
+          <button class="btn btn-small btn-outline" data-detalle="${order.id}">Detalle</button>
+        </div>
+      </article>
+    `)
+    .join("");
+}
+
 function renderGestorAssignTable({
   pendientes,
   activeZoneFilter,
   zoneLabel,
 }) {
   const tbody = qs("#gestorAssignBody");
+  let mobileBoard = qs("#gestorAssignMobileBoard");
+  const tableWrapper = tbody?.closest(".role-table-wrapper");
+  const assignCard = tableWrapper?.closest(".card");
+  tableWrapper?.classList.add("gestor-desktop-table");
+  if (!mobileBoard && assignCard) {
+    mobileBoard = document.createElement("div");
+    mobileBoard.id = "gestorAssignMobileBoard";
+    mobileBoard.className = "gestor-mobile-board";
+    assignCard.appendChild(mobileBoard);
+  }
   if (!tbody) return;
 
   tbody.innerHTML = pendientes.length
     ? ""
     : tableEmptyRow(9, activeZoneFilter === "all" ? "No hay pedidos pendientes de asignar." : `No hay pedidos pendientes de asignar en ${zoneLabel}.`);
+
+  if (mobileBoard) {
+    mobileBoard.innerHTML = pendientes.length
+      ? renderGestorAssignMobileCards(pendientes)
+      : renderGestorEmptyMobileBoard(activeZoneFilter === "all" ? "No hay pedidos pendientes de asignar." : `No hay pedidos pendientes de asignar en ${zoneLabel}.`);
+  }
 
   pendientes.forEach((o) => {
     const repsByZone = repartidoresCache.filter((r) => normalizeZoneName(r.zone) === normalizeZoneName(o.zone));
@@ -4673,11 +4828,14 @@ function renderGestorAssignTable({
       <td><button class="btn btn-small btn-outline" data-detalle="${o.id}">Detalle</button></td>
       <td><button class="btn btn-primary btn-small" data-save="${o.id}">Asignar</button></td>
     `;
+    tr.setAttribute("data-assign-scope", o.id);
     tbody.appendChild(tr);
   });
 
   Array.from(tbody.querySelectorAll("[data-save]")).forEach((btn) => btn.addEventListener("click", gestorAssign));
+  Array.from(mobileBoard?.querySelectorAll("[data-save]") || []).forEach((btn) => btn.addEventListener("click", gestorAssign));
   bindInvoiceAndDetailButtons(tbody);
+  bindInvoiceAndDetailButtons(mobileBoard);
 }
 
 function renderGestorInProgressPanel({
@@ -4697,7 +4855,7 @@ function renderGestorInProgressPanel({
     <div class="card card-spaced">
       <div class="card-title">Pedidos asignados y en proceso</div>
       <div class="card-secondary">${activeZoneFilter === "all" ? "Seguimiento de ruta, entrega y control operativo." : `Seguimiento concentrado en ${escapeHtml(zoneLabel)} para no perder visibilidad en despacho.`}</div>
-      <div class="role-table-wrapper">
+      <div class="role-table-wrapper gestor-desktop-table">
         <table class="role-table">
           <thead>
             <tr>
@@ -4715,15 +4873,23 @@ function renderGestorInProgressPanel({
           <tbody id="gestorInProgressBody"></tbody>
         </table>
       </div>
+      <div id="gestorInProgressMobileBoard" class="gestor-mobile-board"></div>
     </div>
   `;
 
   const body2 = qs("#gestorInProgressBody");
+  const mobileBoard = qs("#gestorInProgressMobileBoard");
   if (!body2) return;
 
   body2.innerHTML = enProceso.length
     ? ""
     : tableEmptyRow(9, activeZoneFilter === "all" ? "No hay pedidos en proceso." : `No hay pedidos en proceso en ${zoneLabel}.`);
+
+  if (mobileBoard) {
+    mobileBoard.innerHTML = enProceso.length
+      ? renderGestorInProgressMobileCards(enProceso)
+      : renderGestorEmptyMobileBoard(activeZoneFilter === "all" ? "No hay pedidos en proceso." : `No hay pedidos en proceso en ${zoneLabel}.`);
+  }
 
   enProceso.forEach((o) => {
     const tr = document.createElement("tr");
@@ -4764,12 +4930,14 @@ function renderGestorInProgressPanel({
   });
 
   bindInvoiceAndDetailButtons(body2);
+  bindInvoiceAndDetailButtons(mobileBoard);
 }
 
 async function gestorAssign(ev) {
   const trigger = ev.currentTarget || ev.target;
   const orderId = trigger?.dataset?.save;
-  const select = qs(`select[data-assign="${orderId}"]`);
+  const scope = trigger?.closest("[data-assign-scope]");
+  const select = scope?.querySelector(`select[data-assign="${orderId}"]`) || qs(`select[data-assign="${orderId}"]`);
   const repartidorId = select?.value;
   if (!repartidorId) {
     showWarning("Elige un repartidor.");
@@ -4787,10 +4955,27 @@ async function gestorAssign(ev) {
 
 function renderGestorLocal() {
   const tbody = qs("#localOrdersBody");
+  const mobileBoard = qs("#localOrdersMobileBoard");
+  const tableWrapper = tbody?.closest(".role-table-wrapper");
+  const localCard = tableWrapper?.closest(".card");
+  tableWrapper?.classList.add("gestor-desktop-table");
+  if (!mobileBoard && localCard) {
+    const board = document.createElement("div");
+    board.id = "localOrdersMobileBoard";
+    board.className = "gestor-mobile-board";
+    localCard.appendChild(board);
+  }
   if (!tbody) return;
 
   const localOrders = sortByNewestId(localOrdersCache);
   tbody.innerHTML = localOrders.length ? "" : tableEmptyRow(8, "No hay pedidos registrados en el local.");
+
+  const currentMobileBoard = qs("#localOrdersMobileBoard");
+  if (currentMobileBoard) {
+    currentMobileBoard.innerHTML = localOrders.length
+      ? renderGestorLocalMobileCards(localOrders)
+      : renderGestorEmptyMobileBoard("No hay pedidos registrados en el local.");
+  }
 
   localOrders.forEach((o) => {
     const tr = document.createElement("tr");
@@ -4808,6 +4993,7 @@ function renderGestorLocal() {
   });
 
   bindInvoiceAndDetailButtons(tbody);
+  bindInvoiceAndDetailButtons(currentMobileBoard);
 }
 
 function renderRepartidorHome() {
