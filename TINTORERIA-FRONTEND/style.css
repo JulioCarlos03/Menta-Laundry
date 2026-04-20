@@ -5199,9 +5199,17 @@ body.theme-light .topbar{
     rgba(255,255,255,.92);
 }
 
+.topbar-left{
+  gap: 10px;
+}
+
 .app-logo{
+  width: clamp(118px, 18vw, 176px);
+  height: 56px;
+  flex: 0 0 auto;
   padding: 0;
   overflow: hidden;
+  border-radius: 18px;
   background: none !important;
   box-shadow: none !important;
 }
@@ -5211,17 +5219,13 @@ body.theme-light .topbar{
   height: 100%;
   display: block;
   object-fit: cover;
-  border-radius: inherit;
+  object-position: center 48%;
+  transform: scale(1.12);
+  transform-origin: center center;
 }
 
-.app-brand .app-name{
-  text-transform: none !important;
-  letter-spacing: .02em !important;
-}
-
-.app-brand .app-subtitle{
-  text-transform: none;
-  letter-spacing: 0;
+.app-brand{
+  display: none;
 }
 
 .service-pill,
@@ -5330,5 +5334,10 @@ body.theme-light .account-billing-meta span{
 
   .account-billing-value{
     text-align: left;
+  }
+
+  .app-logo{
+    width: 132px;
+    height: 48px;
   }
 }

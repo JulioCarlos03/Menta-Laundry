@@ -756,7 +756,7 @@ function ensureTopbarEnhancements() {
   const logo = qs(".app-logo");
   if (logo) {
     logo.setAttribute("aria-label", BUSINESS_PROFILE.name);
-    logo.innerHTML = `<img src="${BUSINESS_ASSETS.icon}" alt="${BUSINESS_PROFILE.name}" />`;
+    logo.innerHTML = `<img src="${BUSINESS_ASSETS.logo}" alt="${BUSINESS_PROFILE.name}" />`;
   }
   let favicon = document.querySelector('link[rel="icon"]');
   if (!favicon) {
@@ -765,7 +765,7 @@ function ensureTopbarEnhancements() {
     document.head.appendChild(favicon);
   }
   favicon.setAttribute("href", BUSINESS_ASSETS.icon);
-  favicon.setAttribute("type", "image/svg+xml");
+  favicon.setAttribute("type", "image/png");
 
   if (!qs(".topbar-center")) {
     const center = document.createElement("div");
@@ -2888,7 +2888,8 @@ const BUSINESS_PROFILE = {
 
 const BUSINESS_PHONE_DIGITS = "18294487876";
 const BUSINESS_ASSETS = {
-  icon: "assets/menta-icon.svg",
+  logo: "assets/menta-logo.png",
+  icon: "assets/menta-logo.png",
 };
 
 const ZONE_CENTERS = {
