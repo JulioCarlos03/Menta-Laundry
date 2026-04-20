@@ -257,6 +257,33 @@ function buildAuthResponseHtml(response, fallbackMessage) {
   `;
 }
 
+function isEmailDeliveryIssue(payload) {
+  const text = [payload?.code, payload?.message]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    text.includes("email_delivery_failed") ||
+    text.includes("email_auth_failed") ||
+    text.includes("535") ||
+    text.includes("invalid login") ||
+    text.includes("authentication failed")
+  );
+}
+
+function getFriendlyAuthMessage(payload, fallbackMessage) {
+  const message = String(payload?.message || "").trim();
+  if (isEmailDeliveryIssue(payload)) {
+    return (
+      message ||
+      "No pudimos enviar el correo en este momento. Intenta de nuevo en unos minutos o contacta soporte."
+    );
+  }
+
+  return message || fallbackMessage;
+}
+
 function ensureAuthSupportBlocks() {
   const authCard = qs("#authView .auth-card");
   const loginForm = qs("#loginForm");
@@ -383,16 +410,26 @@ async function handleAuthActionSubmit(e) {
     if (authActionState.mode === "forgot") {
       const email = qs("#authActionEmail")?.value.trim() || "";
       const data = await requestPasswordReset(email);
-      setInlineMessage(message, buildAuthResponseHtml(data, data.message), "success", { html: true });
-      showSuccess("Solicitud enviada. Revisa tu correo.");
+      const tone = data?.emailDeliveryFailed ? "warning" : "success";
+      setInlineMessage(message, buildAuthResponseHtml(data, data.message), tone, { html: true });
+      if (data?.emailDeliveryFailed) {
+        showWarning(getFriendlyAuthMessage(data, "No pudimos enviar el correo ahora mismo."));
+      } else {
+        showSuccess("Solicitud enviada. Revisa tu correo.");
+      }
       return;
     }
 
     if (authActionState.mode === "resend") {
       const email = qs("#authActionEmail")?.value.trim() || "";
       const data = await resendVerification(email);
-      setInlineMessage(message, buildAuthResponseHtml(data, data.message), "success", { html: true });
-      showSuccess("Correo de verificacion procesado.");
+      const tone = data?.emailDeliveryFailed ? "warning" : "success";
+      setInlineMessage(message, buildAuthResponseHtml(data, data.message), tone, { html: true });
+      if (data?.emailDeliveryFailed) {
+        showWarning(getFriendlyAuthMessage(data, "No pudimos enviar el correo ahora mismo."));
+      } else {
+        showSuccess("Correo de verificacion procesado.");
+      }
       return;
     }
 
@@ -416,7 +453,8 @@ async function handleAuthActionSubmit(e) {
       showSuccess(data.message || "Contrasena actualizada.");
     }
   } catch (err) {
-    setInlineMessage(message, err.message || "No pudimos completar esta accion.", "error");
+    const friendlyMessage = getFriendlyAuthMessage(err, "No pudimos completar esta accion.");
+    setInlineMessage(message, friendlyMessage, isEmailDeliveryIssue(err) ? "warning" : "error");
   }
 }
 
@@ -2350,12 +2388,18 @@ function attachAuthEvents() {
         qs("#registerEmail").value,
         qs("#registerPassword").value
       );
-      setInlineMessage("#registerMessage", buildAuthResponseHtml(data, data.message), "success", { html: true });
+      const tone = data?.emailDeliveryFailed ? "warning" : "success";
+      setInlineMessage("#registerMessage", buildAuthResponseHtml(data, data.message), tone, { html: true });
       if (data?.user?.email) qs("#loginEmail").value = data.user.email;
-      showSuccess(data.message || "Cuenta creada. Revisa tu correo.");
+      if (data?.emailDeliveryFailed) {
+        showWarning(getFriendlyAuthMessage(data, "La cuenta fue creada, pero el correo no pudo enviarse ahora mismo."));
+      } else {
+        showSuccess(data.message || "Cuenta creada. Revisa tu correo.");
+      }
       qs("#registerForm").reset();
     } catch (err) {
-      setInlineMessage("#registerMessage", err.message || "Error de registro", "error");
+      const friendlyMessage = getFriendlyAuthMessage(err, "Error de registro");
+      setInlineMessage("#registerMessage", friendlyMessage, isEmailDeliveryIssue(err) ? "warning" : "error");
     }
   });
 

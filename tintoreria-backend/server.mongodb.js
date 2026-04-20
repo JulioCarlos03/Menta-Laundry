@@ -239,6 +239,49 @@ function buildDeliveryResponse(deliveryResult) {
   };
 }
 
+function buildEmailDeliveryFallback() {
+  return {
+    mode: getEmailMode(),
+    debugActionUrl: null,
+  };
+}
+
+function isEmailDeliveryError(error) {
+  const text = [
+    error?.code,
+    error?.responseCode,
+    error?.response,
+    error?.message,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    text.includes("535") ||
+    text.includes("invalid login") ||
+    text.includes("authentication failed") ||
+    text.includes("eauth") ||
+    text.includes("smtp")
+  );
+}
+
+function buildEmailDeliveryFailureMessage(kind = "generic", { accountCreated = false } = {}) {
+  if (kind === "verification" && accountCreated) {
+    return "La cuenta fue creada, pero ahora mismo no pudimos enviar el correo de verificacion. Usa 'Reenviar verificacion' en unos minutos o contacta soporte.";
+  }
+
+  if (kind === "verification") {
+    return "No pudimos enviar el correo de verificacion ahora mismo. Intenta de nuevo en unos minutos o contacta soporte.";
+  }
+
+  if (kind === "reset") {
+    return "No pudimos enviar el correo de recuperacion ahora mismo. Intenta de nuevo en unos minutos o contacta soporte.";
+  }
+
+  return "No pudimos enviar el correo en este momento. Intenta de nuevo en unos minutos o contacta soporte.";
+}
+
 async function issueEmailVerification(user) {
   const verification = buildExpiringToken(VERIFICATION_TOKEN_TTL_MS);
   user.emailVerificationToken = verification.hash;
@@ -501,7 +544,21 @@ app.post(
       passwordResetExpiresAt: null,
     });
 
-    const verification = await issueEmailVerification(newUser);
+    let verification = null;
+    try {
+      verification = await issueEmailVerification(newUser);
+    } catch (error) {
+      console.error("No se pudo enviar el correo de verificacion:", error);
+      return res.status(201).json({
+        code: "EMAIL_DELIVERY_FAILED",
+        message: buildEmailDeliveryFailureMessage("verification", { accountCreated: true }),
+        user: publicUser(newUser),
+        requiresEmailVerification: true,
+        emailDeliveryFailed: true,
+        emailAction: "resend_verification",
+        ...buildDeliveryResponse(buildEmailDeliveryFallback()),
+      });
+    }
 
     res.json({
       message: "Cuenta creada. Revisa tu correo para verificarla.",
@@ -597,7 +654,20 @@ app.post(
       });
     }
 
-    const verification = await issueEmailVerification(user);
+    let verification = null;
+    try {
+      verification = await issueEmailVerification(user);
+    } catch (error) {
+      console.error("No se pudo reenviar el correo de verificacion:", error);
+      return res.status(503).json({
+        code: "EMAIL_DELIVERY_FAILED",
+        message: buildEmailDeliveryFailureMessage("verification"),
+        emailDeliveryFailed: true,
+        emailAction: "resend_verification",
+        ...buildDeliveryResponse(buildEmailDeliveryFallback()),
+      });
+    }
+
     res.json({
       message: "Te enviamos un nuevo correo de verificacion.",
       ...buildDeliveryResponse(verification.delivery),
@@ -621,7 +691,20 @@ app.post(
       return res.json({ message: genericMessage });
     }
 
-    const reset = await issuePasswordReset(user);
+    let reset = null;
+    try {
+      reset = await issuePasswordReset(user);
+    } catch (error) {
+      console.error("No se pudo enviar el correo de recuperacion:", error);
+      return res.status(503).json({
+        code: "EMAIL_DELIVERY_FAILED",
+        message: buildEmailDeliveryFailureMessage("reset"),
+        emailDeliveryFailed: true,
+        emailAction: "forgot_password",
+        ...buildDeliveryResponse(buildEmailDeliveryFallback()),
+      });
+    }
+
     res.json({
       message: genericMessage,
       ...buildDeliveryResponse(reset.delivery),
@@ -1114,6 +1197,14 @@ app.get("/api/health", (_req, res) => {
 
 app.use((err, _req, res, _next) => {
   console.error(err);
+  if (isEmailDeliveryError(err)) {
+    return res.status(503).json({
+      code: "EMAIL_DELIVERY_FAILED",
+      message: buildEmailDeliveryFailureMessage("generic"),
+      emailDeliveryFailed: true,
+      ...buildDeliveryResponse(buildEmailDeliveryFallback()),
+    });
+  }
   res.status(500).json({ message: err.message || "Error interno del servidor." });
 });
 
