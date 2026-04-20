@@ -753,6 +753,19 @@ function ensureTopbarEnhancements() {
 
   if (qs(".app-name")) qs(".app-name").textContent = BUSINESS_PROFILE.name;
   if (qs(".app-subtitle")) qs(".app-subtitle").textContent = BUSINESS_PROFILE.tagline;
+  const logo = qs(".app-logo");
+  if (logo) {
+    logo.setAttribute("aria-label", BUSINESS_PROFILE.name);
+    logo.innerHTML = `<img src="${BUSINESS_ASSETS.icon}" alt="${BUSINESS_PROFILE.name}" />`;
+  }
+  let favicon = document.querySelector('link[rel="icon"]');
+  if (!favicon) {
+    favicon = document.createElement("link");
+    favicon.setAttribute("rel", "icon");
+    document.head.appendChild(favicon);
+  }
+  favicon.setAttribute("href", BUSINESS_ASSETS.icon);
+  favicon.setAttribute("type", "image/svg+xml");
 
   if (!qs(".topbar-center")) {
     const center = document.createElement("div");
@@ -1273,6 +1286,7 @@ async function loadAll() {
   if (currentUser.role === "cliente") {
     renderClientHome();
     renderClientActivity();
+    renderClientAccount();
   }
 
   if (currentUser.role === "gestor") {
@@ -1952,7 +1966,7 @@ function buildClientOrderStats(clientOrders) {
 
 function renderClientHome() {
   const stats = buildClientOrderStats(ordersCache.filter((o) => o.userId === currentUser.id));
-  const { my, active, activeCount, delivered, cancelled, recentOrder, recentDelivered, favoritePack, estimatedRevenue, gpsReadyCount } = stats;
+  const { my, active, activeCount, delivered, cancelled, recentOrder, recentDelivered, favoritePack, gpsReadyCount } = stats;
   const serviceCard = qs("#serviceExperienceCard");
   const quickOrderCard = qs("#quickOrderCard");
   let executiveCard = qs("#clientExecutiveCard");
@@ -2144,8 +2158,8 @@ function renderClientHome() {
           <strong>${delivered.length}</strong>
         </div>
         <div class="executive-metric">
-          <span>Invertido</span>
-          <strong>${compactMoney(estimatedRevenue)}</strong>
+          <span>Zona base</span>
+          <strong>${escapeHtml(focusZone)}</strong>
         </div>
       </div>
       <div class="attention-board">
@@ -2199,7 +2213,7 @@ function renderClientActivity() {
   const timeline = qs("#activityTimeline");
   const screen = qs("#screenActivity");
   let summaryCard = qs("#clientActivitySummaryCard");
-  const { my, activeCount, delivered, recentDelivered, favoritePack, estimatedRevenue } =
+  const { my, activeCount, delivered, recentOrder, recentDelivered, favoritePack } =
     buildClientOrderStats(ordersCache.filter((o) => o.userId === currentUser.id));
   if (!summaryCard && screen) {
     summaryCard = document.createElement("div");
@@ -2235,8 +2249,8 @@ function renderClientActivity() {
           <strong>${delivered.length}</strong>
         </div>
         <div class="executive-metric">
-          <span>Invertido</span>
-          <strong>${compactMoney(estimatedRevenue)}</strong>
+          <span>Zona reciente</span>
+          <strong>${escapeHtml(recentOrder?.zone || "Sin historial")}</strong>
         </div>
       </div>
       <div class="client-activity-overview">
@@ -2306,6 +2320,78 @@ function renderClientActivity() {
 
   bindInvoiceAndDetailButtons(timeline);
   Array.from(timeline.querySelectorAll("[data-cancel]")).forEach((btn) => btn.addEventListener("click", (ev) => cancelOrder(ev.target.dataset.cancel)));
+}
+
+function renderClientAccount() {
+  const accountCard = qs("#screenAccount .card");
+  const profileForm = qs("#profileForm");
+  if (!accountCard || !profileForm || currentUser.role !== "cliente") return;
+
+  const stats = buildClientOrderStats(ordersCache.filter((o) => o.userId === currentUser.id));
+  const { my, activeCount, delivered, recentOrder, favoritePack, estimatedRevenue } = stats;
+  let summaryCard = qs("#accountExecutiveCard");
+  let billingCard = qs("#accountBillingCard");
+  const helpBlock = profileForm.nextElementSibling;
+
+  if (!summaryCard) {
+    summaryCard = document.createElement("div");
+    summaryCard.id = "accountExecutiveCard";
+    summaryCard.className = "card-spaced account-overview-shell";
+    profileForm.insertAdjacentElement("beforebegin", summaryCard);
+  }
+
+  if (!billingCard) {
+    billingCard = document.createElement("div");
+    billingCard.id = "accountBillingCard";
+    billingCard.className = "account-billing-card";
+    if (helpBlock) {
+      helpBlock.insertAdjacentElement("beforebegin", billingCard);
+    } else {
+      profileForm.insertAdjacentElement("afterend", billingCard);
+    }
+  }
+
+  summaryCard.innerHTML = `
+    <div class="executive-head">
+      <div>
+        <div class="card-title">Cuenta privada ${escapeHtml(BUSINESS_PROFILE.name)}</div>
+        <div class="card-secondary">Aqui dejamos la informacion mas personal de tu cuenta para no cargar la portada del cliente.</div>
+      </div>
+      <div class="estimate-badge">${escapeHtml(getClientCareTier(my.length))}</div>
+    </div>
+    <div class="client-luxury-strip account-luxury-strip">
+      <div class="client-luxury-card">
+        <span>Pedidos</span>
+        <strong>${my.length}</strong>
+        <small>${activeCount} activos y ${delivered.length} entregados.</small>
+      </div>
+      <div class="client-luxury-card">
+        <span>Servicio frecuente</span>
+        <strong>${escapeHtml(favoritePack)}</strong>
+        <small>Lo que mas repites cuando agendas desde tu cuenta.</small>
+      </div>
+      <div class="client-luxury-card">
+        <span>Correo</span>
+        <strong>${currentUser?.emailVerified ? "Verificado" : "Pendiente"}</strong>
+        <small>${escapeHtml(currentUser.email || BUSINESS_PROFILE.email)}</small>
+      </div>
+    </div>
+  `;
+
+  billingCard.innerHTML = `
+    <div class="account-billing-box">
+      <div class="account-billing-copy">
+        <span>Resumen privado</span>
+        <strong>Referencia acumulada de facturas</strong>
+        <small>Solo se muestra aqui dentro de tu cuenta para consulta personal.</small>
+      </div>
+      <div class="account-billing-value">${money(estimatedRevenue)}</div>
+    </div>
+    <div class="account-billing-meta">
+      <span>${my.length} facturas registradas</span>
+      <span>${escapeHtml(recentOrder ? `Ultimo pedido: #${recentOrder.id} | ${fmtDate(recentOrder.date)}` : "Aun no tienes pedidos registrados.")}</span>
+    </div>
+  `;
 }
 
 function renderGestorHome() {
@@ -2790,23 +2876,49 @@ const PRICING_MODE_LABELS = {
 };
 
 const BUSINESS_PROFILE = {
-  name: "Tintoreria Express",
-  legalName: "Tintoreria Express SRL",
-  tagline: "Cuidado textil y prendas finas",
+  name: "Menta Laundry",
+  legalName: "Menta Laundry SRL",
+  tagline: "Frescura en cada prenda",
   rnc: "1-32-45896-2",
   phone: "829-448-7876",
-  email: "hola@tintoreriaexpress.com",
+  email: "admin@mentalaundry.com",
   address: "Av. 27 de Febrero 135, Distrito Nacional",
   schedule: "Lunes a sabado | 8:00 AM - 10:00 PM",
 };
 
 const BUSINESS_PHONE_DIGITS = "18294487876";
+const BUSINESS_ASSETS = {
+  icon: "assets/menta-icon.svg",
+};
 
 const ZONE_CENTERS = {
-  "Distrito Nacional": { lat: 18.48606, lng: -69.93121 },
-  Sur: { lat: 18.45182, lng: -69.96257 },
-  Este: { lat: 18.49958, lng: -69.84791 },
-  Oeste: { lat: 18.47037, lng: -70.01589 },
+  "Distrito Nacional": { lat: 18.47952, lng: -69.93118 },
+  Sur: { lat: 18.43265, lng: -69.9562 },
+  Este: { lat: 18.50384, lng: -69.85391 },
+  Oeste: { lat: 18.48478, lng: -69.99142 },
+};
+
+const ZONE_REFERENCE_POINTS = {
+  "Distrito Nacional": [
+    { lat: 18.48606, lng: -69.93121 },
+    { lat: 18.47584, lng: -69.91859 },
+    { lat: 18.47111, lng: -69.90672 },
+  ],
+  Sur: [
+    { lat: 18.45182, lng: -69.96257 },
+    { lat: 18.43054, lng: -69.95842 },
+    { lat: 18.42174, lng: -69.97021 },
+  ],
+  Este: [
+    { lat: 18.49958, lng: -69.84791 },
+    { lat: 18.51179, lng: -69.83037 },
+    { lat: 18.49402, lng: -69.81281 },
+  ],
+  Oeste: [
+    { lat: 18.48478, lng: -69.99142 },
+    { lat: 18.47271, lng: -69.98363 },
+    { lat: 18.50724, lng: -70.00384 },
+  ],
 };
 
 function getOrderById(id) {
@@ -3331,8 +3443,18 @@ function formatAccuracyMeters(value) {
 
 function inferZoneFromCoords(lat, lng) {
   const point = { lat: Number(lat), lng: Number(lng) };
-  const ranked = Object.entries(ZONE_CENTERS)
-    .map(([zone, center]) => ({ zone, distance: haversineKm(point, center) }))
+  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return "Distrito Nacional";
+
+  if (point.lng <= -69.982 && point.lat >= 18.445) return "Oeste";
+  if (point.lng >= -69.875 && point.lat >= 18.43) return "Este";
+  if (point.lat <= 18.442 && point.lng <= -69.905) return "Sur";
+  if (point.lat >= 18.452 && point.lng > -69.982 && point.lng < -69.885) return "Distrito Nacional";
+
+  const ranked = Object.entries(ZONE_REFERENCE_POINTS)
+    .map(([zone, references]) => ({
+      zone,
+      distance: Math.min(...references.map((reference) => haversineKm(point, reference))),
+    }))
     .sort((a, b) => a.distance - b.distance);
 
   return ranked[0]?.zone || "Distrito Nacional";

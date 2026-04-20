@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Menta Laundry">
+  <defs>
+    <linearGradient id="mentaBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#9ad8bc" />
+      <stop offset="100%" stop-color="#6fc7a8" />
+    </linearGradient>
+    <linearGradient id="mentaDrop" x1="0%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#9bd9ff" />
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#mentaBg)" />
+  <g fill="#f6fff8">
+    <path d="M32 58c14-1 26 6 30 17-13 2-26-5-30-17Z" opacity=".95" />
+    <path d="M43 33c17 2 29 13 31 28-17 0-29-10-31-28Z" />
+    <path d="M19 50c10 0 19 5 23 13-10 1-19-4-23-13Z" opacity=".9" />
+    <path d="M44 39c6 4 11 10 14 17" stroke="#8dd0b6" stroke-width="3" stroke-linecap="round" fill="none" />
+    <path d="M28 53c4 2 8 5 11 9" stroke="#8dd0b6" stroke-width="2.5" stroke-linecap="round" fill="none" />
+  </g>
+  <path d="M84 29c10 15 14 24 14 31a14 14 0 1 1-28 0c0-7 4-16 14-31Z" fill="url(#mentaDrop)" />
+  <path d="M22 78c20 3 61 3 87-1" fill="none" stroke="#f4fff7" stroke-width="5" stroke-linecap="round" opacity=".78" />
+  <path d="M92 32l2-6m8 14 5-2m-4 11 4 4" stroke="#f4fff7" stroke-width="4" stroke-linecap="round" opacity=".92" />
+</svg>
