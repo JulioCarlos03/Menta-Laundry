@@ -1905,45 +1905,370 @@ async function onCreateOrder(e) {
   }
 }
 
+function compactMoney(value) {
+  const amount = Number(value) || 0;
+  if (amount >= 1000000) return `RD$ ${(amount / 1000000).toFixed(amount >= 10000000 ? 0 : 1)}M`;
+  if (amount >= 1000) return `RD$ ${(amount / 1000).toFixed(amount >= 10000 ? 0 : 1)}k`;
+  return money(amount);
+}
+
+function getClientCareTier(totalOrders) {
+  if (totalOrders >= 8) return "Cliente Signature";
+  if (totalOrders >= 4) return "Cliente Frecuente";
+  if (totalOrders >= 1) return "Cliente Activo";
+  return "Cuenta nueva";
+}
+
+function buildClientOrderStats(clientOrders) {
+  const my = sortByNewestId(clientOrders);
+  const activeOrders = my.filter((order) => !["entregado", "cancelado"].includes(String(order.status || "").toLowerCase()));
+  const delivered = my.filter((order) => String(order.status || "").toLowerCase().includes("entregado"));
+  const cancelled = my.filter((order) => String(order.status || "").toLowerCase().includes("cancel"));
+  const favoriteCounts = new Map();
+  let estimatedRevenue = 0;
+  let gpsReadyCount = 0;
+
+  my.forEach((order) => {
+    getOrderPacks(order).forEach((pack) => {
+      favoriteCounts.set(pack, (favoriteCounts.get(pack) || 0) + 1);
+    });
+    estimatedRevenue += Number(buildOrderChargeBreakdown(order).total || 0);
+    if (getOrderHighlightFlags(order).hasGps) gpsReadyCount += 1;
+  });
+
+  return {
+    my,
+    active: activeOrders[0] || null,
+    activeCount: activeOrders.length,
+    delivered,
+    cancelled,
+    recentOrder: my[0] || null,
+    recentDelivered: delivered[0] || null,
+    favoritePack: [...favoriteCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "Lavado + Planchado",
+    estimatedRevenue,
+    gpsReadyCount,
+  };
+}
+
 function renderClientHome() {
-  const my = sortByNewestId(ordersCache.filter((o) => o.userId === currentUser.id));
-  const active = my.find((o) => !["entregado", "cancelado"].includes(o.status));
+  const stats = buildClientOrderStats(ordersCache.filter((o) => o.userId === currentUser.id));
+  const { my, active, activeCount, delivered, cancelled, recentOrder, recentDelivered, favoritePack, estimatedRevenue, gpsReadyCount } = stats;
+  const serviceCard = qs("#serviceExperienceCard");
+  const quickOrderCard = qs("#quickOrderCard");
+  let executiveCard = qs("#clientExecutiveCard");
   const statusNode = qs("#nextOrderStatus");
   const infoNode = qs("#nextOrderInfo");
+  const careTier = getClientCareTier(my.length);
+  const greetingName = String(currentUser?.name || "Cliente").trim().split(/\s+/)[0] || "Cliente";
+  const focusZone = active?.zone || recentOrder?.zone || "Distrito Nacional";
+  const supportMessage = encodeURIComponent(`Hola, necesito ayuda con mi cuenta en ${BUSINESS_PROFILE.name}.`);
+
+  if (!executiveCard && quickOrderCard) {
+    executiveCard = document.createElement("div");
+    executiveCard.id = "clientExecutiveCard";
+    executiveCard.className = "card card-spaced client-executive-card";
+    quickOrderCard.insertAdjacentElement("afterend", executiveCard);
+  }
 
   if (!active) {
     statusNode.textContent = "Sin pedidos";
     statusNode.className = "status-pill status-empty";
-    infoNode.textContent = "Cuando crees un pedido, veras aqui su estado.";
-    return;
+    infoNode.innerHTML = `
+      <div class="client-summary-copy">
+        Cuando confirmes tu primer servicio, aqui veras estado, zona, horario, detalle y seguimiento de una forma mucho mas clara.
+      </div>
+      <div class="client-spotlight">
+        <div class="client-spotlight-copy">
+          <strong>Tu proximo servicio puede verse mucho mejor desde el inicio</strong>
+          <span>Agenda recogida, selecciona tus paquetes y mantente al tanto del proceso sin perder contexto.</span>
+        </div>
+        <div class="client-spotlight-side">
+          <small>${careTier}</small>
+          <strong>${currentUser?.emailVerified ? "Correo verificado" : "Cuenta lista"}</strong>
+        </div>
+      </div>
+      <div class="brand-pill-row">
+        <span class="estimate-tag">Recogida programada</span>
+        <span class="estimate-tag">Factura elegante</span>
+        <span class="estimate-tag">Seguimiento visible</span>
+      </div>
+    `;
+  } else {
+    const activeBreakdown = buildOrderChargeBreakdown(active);
+    const activeLocation = getOrderLocation(active);
+    const packs = getOrderPacks(active);
+    statusNode.textContent = formatStatusLabel(active.status);
+    statusNode.className = `status-pill ${getStatusTone(active.status)}`;
+
+    const summary = [fmtDate(active.date), fmtTime(active.time), active.zone];
+    if (active.repartidorName) summary.push(`Repartidor: ${active.repartidorName}`);
+    const info = summary.filter(Boolean).join(" | ");
+    const amountLabel = activeBreakdown.weightPending
+      ? activeBreakdown.total > 0
+        ? `Desde ${money(activeBreakdown.total)}`
+        : "Total por confirmar"
+      : money(activeBreakdown.total);
+    const serviceMeta = [
+      active.serviceType || "Recogida coordinada",
+      describePricingMode(active.pricingMode),
+      activeLocation ? "GPS verificado" : "Direccion manual",
+      amountLabel,
+    ].filter(Boolean).join(" | ");
+
+    infoNode.innerHTML = `
+      <div class="client-summary-copy">${escapeHtml(info)}</div>
+      <div class="client-spotlight">
+        <div class="client-spotlight-copy">
+          <strong>${escapeHtml(packs.join(" + ") || active.pack || "Servicio general")}</strong>
+          <span>${escapeHtml(serviceMeta)}</span>
+        </div>
+        <div class="client-spotlight-side">
+          <small>${active.repartidorName ? "Repartidor asignado" : "Preparando ruta"}</small>
+          <strong>${escapeHtml(active.repartidorName || focusZone)}</strong>
+        </div>
+      </div>
+      <div class="brand-pill-row">
+        ${(packs.length ? packs : [active.pack || "Servicio general"]).map((pack) => `<span class="estimate-tag">${escapeHtml(pack)}</span>`).join("")}
+        <span class="estimate-tag">${escapeHtml(focusZone)}</span>
+        <span class="estimate-tag ${activeLocation ? "" : "estimate-tag-muted"}">${activeLocation ? "GPS verificado" : "Direccion manual"}</span>
+      </div>
+      <div class="client-support-row">
+        <button class="btn btn-small" type="button" id="homeInvoiceBtn">Factura</button>
+        <button class="btn btn-small btn-outline" type="button" id="homeDetailBtn">Detalle</button>
+        <button class="btn btn-small btn-outline" type="button" id="homeActivityBtn">Seguimiento</button>
+        ${canCancel(active) ? `<button class="btn btn-small btn-outline" type="button" id="homeCancelBtn">Cancelar (5 min)</button>` : ""}
+      </div>
+    `;
+
+    qs("#homeInvoiceBtn")?.addEventListener("click", () => openInvoice(active.id));
+    qs("#homeDetailBtn")?.addEventListener("click", () => openDetail(active.id));
+    qs("#homeActivityBtn")?.addEventListener("click", () => showScreen("screenActivity"));
+    qs("#homeCancelBtn")?.addEventListener("click", () => cancelOrder(active.id));
   }
 
-  statusNode.textContent = formatStatusLabel(active.status);
-  statusNode.className = `status-pill ${getStatusTone(active.status)}`;
+  if (serviceCard) {
+    const recentDeliveredLabel = recentDelivered
+      ? `${fmtDate(recentDelivered.date)} | ${getOrderPacks(recentDelivered).join(", ") || recentDelivered.pack || "Servicio general"}`
+      : "Tu primera entrega confirmada aparecera aqui cuando completes un servicio.";
 
-  const summary = [fmtDate(active.date), fmtTime(active.time), active.zone];
-  if (active.repartidorName) summary.push(`Repartidor: ${active.repartidorName}`);
-  const info = summary.filter(Boolean).join(" | ");
+    serviceCard.innerHTML = `
+      <div class="estimate-top">
+        <div>
+          <div class="estimate-kicker">Experiencia ${escapeHtml(BUSINESS_PROFILE.name)}</div>
+          <div class="estimate-title">${escapeHtml(careTier)} con una imagen mas cuidada y profesional</div>
+        </div>
+        <div class="estimate-badge">${currentUser?.emailVerified ? "Correo verificado" : "Cuenta activa"}</div>
+      </div>
+      <div class="client-luxury-strip">
+        <div class="client-luxury-card">
+          <span>Zona de servicio</span>
+          <strong>${escapeHtml(focusZone)}</strong>
+          <small>Atencion alineada con tu sector y tu direccion registrada.</small>
+        </div>
+        <div class="client-luxury-card">
+          <span>Pedidos con GPS</span>
+          <strong>${gpsReadyCount}</strong>
+          <small>${gpsReadyCount ? "Ubicaciones validadas para despacho." : "Activa tu ubicacion para una recepcion mas precisa."}</small>
+        </div>
+        <div class="client-luxury-card">
+          <span>Ultima entrega</span>
+          <strong>${recentDelivered ? fmtDate(recentDelivered.date) : "Pendiente"}</strong>
+          <small>${escapeHtml(recentDeliveredLabel)}</small>
+        </div>
+      </div>
+      <div class="attention-board">
+        <div class="detail-section-title">Atencion signature</div>
+        <div class="attention-list">
+          <div class="attention-item">
+            <div>
+              <strong>Tu servicio mas usado</strong>
+              <span>${escapeHtml(favoritePack)}</span>
+            </div>
+            <div class="attention-side">
+              <small>${my.length} pedidos registrados</small>
+            </div>
+          </div>
+          <div class="attention-item">
+            <div>
+              <strong>Soporte inmediato</strong>
+              <span>Te asistimos por WhatsApp, llamada o correo si necesitas mover un servicio o aclarar un detalle.</span>
+            </div>
+            <div class="attention-side">
+              <small>${escapeHtml(BUSINESS_PROFILE.schedule)}</small>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="client-support-row client-support-links">
+        <a class="btn btn-small btn-outline" href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${supportMessage}" target="_blank" rel="noreferrer">WhatsApp</a>
+        <a class="btn btn-small btn-outline" href="tel:+${BUSINESS_PHONE_DIGITS}">Llamar</a>
+        <a class="btn btn-small btn-outline" href="mailto:${BUSINESS_PROFILE.email}">Correo</a>
+      </div>
+    `;
+  }
 
-  if (canCancel(active)) {
-    infoNode.innerHTML = `<span>${info}</span><br><button class="btn btn-small btn-outline" id="homeCancelBtn">Cancelar (5 min)</button>`;
-    qs("#homeCancelBtn")?.addEventListener("click", () => cancelOrder(active.id));
-  } else {
-    infoNode.textContent = info;
+  if (executiveCard) {
+    const nextServiceLabel = active
+      ? `${fmtDate(active.date)} ${fmtTime(active.time)} | ${escapeHtml(active.zone)}`
+      : "Agenda tu primer servicio cuando quieras";
+    const recentLabel = recentOrder
+      ? `${fmtDate(recentOrder.date)} | ${escapeHtml(recentOrder.zone || "--")}`
+      : "Aun sin historial";
+
+    executiveCard.innerHTML = `
+      <div class="client-hero-banner">
+        <div class="client-hero-copy">
+          <div class="estimate-kicker">Client lounge</div>
+          <div class="client-hero-title">${escapeHtml(greetingName)}, tu cuidado textil ya se ve mas premium</div>
+          <div class="client-hero-text">
+            Sigue tus servicios, revisa detalles y mantente cerca de la siguiente entrega desde un panel mas limpio, serio y confiable.
+          </div>
+        </div>
+        <div class="client-hero-side">
+          <span>${escapeHtml(careTier)}</span>
+          <strong>${active ? "Servicio activo" : "Agenda abierta"}</strong>
+          <small>${currentUser?.emailVerified ? "Cuenta validada para recibir correos" : "Activa tu cuenta desde el correo cuando quieras"}</small>
+        </div>
+      </div>
+      <div class="executive-grid client-executive-grid">
+        <div class="executive-metric">
+          <span>Pedidos</span>
+          <strong>${my.length}</strong>
+        </div>
+        <div class="executive-metric">
+          <span>Activos</span>
+          <strong>${activeCount}</strong>
+        </div>
+        <div class="executive-metric">
+          <span>Entregados</span>
+          <strong>${delivered.length}</strong>
+        </div>
+        <div class="executive-metric">
+          <span>Invertido</span>
+          <strong>${compactMoney(estimatedRevenue)}</strong>
+        </div>
+      </div>
+      <div class="attention-board">
+        <div class="detail-section-title">Momentos clave</div>
+        <div class="attention-list">
+          <div class="attention-item">
+            <div>
+              <strong>${active ? "Proximo movimiento" : "Proxima experiencia"}</strong>
+              <span>${escapeHtml(nextServiceLabel)}</span>
+            </div>
+            <div class="attention-side">
+              ${active ? renderStatusBadge(active.status) : `<small>Listo para coordinar</small>`}
+            </div>
+          </div>
+          <div class="attention-item">
+            <div>
+              <strong>Ultimo pedido visible</strong>
+              <span>${escapeHtml(recentLabel)}</span>
+            </div>
+            <div class="attention-side">
+              <small>${escapeHtml(recentOrder ? getOrderPacks(recentOrder).join(", ") || recentOrder.pack || "Servicio general" : favoritePack)}</small>
+            </div>
+          </div>
+          <div class="attention-item">
+            <div>
+              <strong>Cuenta y soporte</strong>
+              <span>${currentUser?.emailVerified ? "Tu correo ya esta listo para recibir notificaciones y confirmaciones." : "Tu cuenta esta activa y puedes completar la validacion por correo cuando quieras."}</span>
+            </div>
+            <div class="attention-side">
+              <small>${cancelled.length} cancelados</small>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="client-support-row client-hero-actions">
+        <button class="btn btn-small" type="button" id="clientGoActivityBtn">Ver actividad</button>
+        <button class="btn btn-small btn-outline" type="button" id="clientFocusOrderBtn">Nuevo pedido</button>
+        <a class="btn btn-small btn-outline" href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${supportMessage}" target="_blank" rel="noreferrer">Soporte</a>
+      </div>
+    `;
+
+    qs("#clientGoActivityBtn")?.addEventListener("click", () => showScreen("screenActivity"));
+    qs("#clientFocusOrderBtn")?.addEventListener("click", () => {
+      quickOrderCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+      qs("#homeZone")?.focus();
+    });
   }
 }
 
 function renderClientActivity() {
   const timeline = qs("#activityTimeline");
+  const screen = qs("#screenActivity");
+  let summaryCard = qs("#clientActivitySummaryCard");
+  const { my, activeCount, delivered, recentDelivered, favoritePack, estimatedRevenue } =
+    buildClientOrderStats(ordersCache.filter((o) => o.userId === currentUser.id));
+  if (!summaryCard && screen) {
+    summaryCard = document.createElement("div");
+    summaryCard.id = "clientActivitySummaryCard";
+    summaryCard.className = "card card-spaced client-activity-summary";
+    const anchorCard = screen.querySelector(".card");
+    if (anchorCard) {
+      screen.insertBefore(summaryCard, anchorCard);
+    }
+  }
   timeline.innerHTML = "";
 
-  const my = sortByNewestId(ordersCache.filter((o) => o.userId === currentUser.id));
+  if (summaryCard) {
+    summaryCard.innerHTML = `
+      <div class="executive-head">
+        <div>
+          <div class="card-title">Actividad y seguimiento</div>
+          <div class="card-secondary">Consulta tu historial con una lectura mas limpia: estado, monto estimado, mapa, factura y detalle en un mismo lugar.</div>
+        </div>
+        <div class="estimate-badge">${currentUser?.emailVerified ? "Cuenta verificada" : "Cliente"}</div>
+      </div>
+      <div class="executive-grid client-executive-grid">
+        <div class="executive-metric">
+          <span>Historial</span>
+          <strong>${my.length}</strong>
+        </div>
+        <div class="executive-metric">
+          <span>Activos</span>
+          <strong>${activeCount}</strong>
+        </div>
+        <div class="executive-metric">
+          <span>Entregados</span>
+          <strong>${delivered.length}</strong>
+        </div>
+        <div class="executive-metric">
+          <span>Invertido</span>
+          <strong>${compactMoney(estimatedRevenue)}</strong>
+        </div>
+      </div>
+      <div class="client-activity-overview">
+        <div class="client-luxury-card">
+          <span>Paquete favorito</span>
+          <strong>${escapeHtml(favoritePack)}</strong>
+          <small>La preferencia que mas se repite en tu historial reciente.</small>
+        </div>
+        <div class="client-luxury-card">
+          <span>Ultima entrega</span>
+          <strong>${recentDelivered ? fmtDate(recentDelivered.date) : "Pendiente"}</strong>
+          <small>${escapeHtml(recentDelivered ? getOrderPacks(recentDelivered).join(", ") || recentDelivered.pack || "Servicio general" : "Tu primera entrega confirmada aparecera aqui.")}</small>
+        </div>
+      </div>
+    `;
+  }
+
   if (!my.length) {
     timeline.innerHTML = `<li class="timeline-empty">Aun no tienes pedidos. Cuando crees uno aparecera aqui.</li>`;
     return;
   }
 
   my.forEach((o) => {
+    const packs = getOrderPacks(o);
+    const breakdown = buildOrderChargeBreakdown(o);
+    const location = getOrderLocation(o);
+    const amountLabel = breakdown.weightPending
+      ? breakdown.total > 0
+        ? `Desde ${money(breakdown.total)}`
+        : "Monto por confirmar"
+      : money(breakdown.total);
+    const serviceMoment = [fmtDate(o.date), fmtTime(o.time)].filter(Boolean).join(" | ");
     const li = document.createElement("li");
     li.className = "timeline-item";
     li.innerHTML = `
@@ -1953,10 +2278,25 @@ function renderClientActivity() {
           <span>Pedido #${o.id}</span>
           ${renderStatusBadge(o.status)}
         </div>
-        <div class="timeline-meta">${fmtDate(o.date)} | ${o.zone} | ${o.repartidorName || "Sin asignar"}</div>
-        <div class="timeline-extra">${o.pack || "Servicio general"}${o.notes ? ` | ${o.notes}` : ""}</div>
+        <div class="timeline-meta">${escapeHtml(serviceMoment)} | ${escapeHtml(o.zone || "--")} | ${escapeHtml(o.repartidorName || "Asignacion pendiente")}</div>
+        <div class="timeline-summary-row">
+          <div class="timeline-summary-block">
+            <strong>${escapeHtml(o.serviceType || "Servicio a domicilio")}</strong>
+            <span>${escapeHtml(describePricingMode(o.pricingMode))}</span>
+          </div>
+          <div class="timeline-summary-block timeline-summary-price">
+            <strong>${escapeHtml(amountLabel)}</strong>
+            <span>${escapeHtml(location ? "GPS verificado" : "Direccion manual")}</span>
+          </div>
+        </div>
+        <div class="timeline-tag-row">
+          ${(packs.length ? packs : [o.pack || "Servicio general"]).map((pack) => `<span class="estimate-tag">${escapeHtml(pack)}</span>`).join("")}
+        </div>
+        <div class="timeline-extra">${o.notes ? escapeHtml(o.notes) : "Factura, detalle y estado disponibles para cada servicio."}</div>
         <div class="timeline-actions">
           <button class="btn btn-small" data-factura="${o.id}">Factura</button>
+          <button class="btn btn-small btn-outline" data-detalle="${o.id}">Detalle</button>
+          <a class="btn btn-small btn-outline" href="${getOrderMapLink(o)}" target="_blank" rel="noreferrer">Mapa</a>
           ${canCancel(o) ? `<button class="btn btn-small btn-outline" data-cancel="${o.id}">Cancelar</button>` : ""}
         </div>
       </div>
@@ -1964,8 +2304,8 @@ function renderClientActivity() {
     timeline.appendChild(li);
   });
 
-  qsa("[data-factura]").forEach((btn) => btn.addEventListener("click", openInvoice));
-  qsa("[data-cancel]").forEach((btn) => btn.addEventListener("click", (ev) => cancelOrder(ev.target.dataset.cancel)));
+  bindInvoiceAndDetailButtons(timeline);
+  Array.from(timeline.querySelectorAll("[data-cancel]")).forEach((btn) => btn.addEventListener("click", (ev) => cancelOrder(ev.target.dataset.cancel)));
 }
 
 function renderGestorHome() {

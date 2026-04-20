@@ -3519,6 +3519,263 @@ body.theme-light .attention-item{
   color: var(--muted);
 }
 
+.client-executive-card,
+.client-activity-summary{
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(420px 180px at 0% 0%, rgba(61,184,198,.14), transparent 72%),
+    radial-gradient(360px 180px at 100% 0%, rgba(196,155,89,.12), transparent 74%),
+    var(--card);
+}
+
+.client-summary-copy{
+  margin-top: 12px;
+  color: var(--text);
+  line-height: 1.65;
+}
+
+.client-spotlight{
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 15px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+}
+
+body.theme-light .client-spotlight{
+  background: rgba(246,252,253,.88);
+}
+
+.client-spotlight-copy{
+  min-width: 0;
+}
+
+.client-spotlight-copy strong{
+  display: block;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.client-spotlight-copy span{
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.client-spotlight-side{
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  text-align: right;
+}
+
+.client-spotlight-side small,
+.client-hero-side span,
+.client-luxury-card span{
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.client-spotlight-side strong,
+.client-luxury-card strong{
+  color: var(--text);
+}
+
+.client-support-row{
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.client-support-links .btn,
+.client-hero-actions .btn,
+.timeline-actions .btn{
+  text-decoration: none;
+}
+
+.client-luxury-strip,
+.client-activity-overview{
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.client-activity-overview{
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.client-luxury-card{
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+}
+
+body.theme-light .client-luxury-card{
+  background: rgba(246,252,253,.9);
+}
+
+.client-luxury-card strong{
+  display: block;
+  margin-top: 8px;
+  font-size: 1.05rem;
+}
+
+.client-luxury-card small{
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.client-hero-banner{
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(61,184,198,.16);
+  background:
+    linear-gradient(135deg, rgba(61,184,198,.10), rgba(196,155,89,.08)),
+    rgba(255,255,255,.03);
+}
+
+body.theme-light .client-hero-banner{
+  background:
+    linear-gradient(135deg, rgba(61,184,198,.12), rgba(196,155,89,.10)),
+    rgba(255,255,255,.94);
+}
+
+.client-hero-copy{
+  min-width: 0;
+}
+
+.client-hero-title{
+  margin-top: 6px;
+  color: var(--text);
+  font-size: 1.4rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.client-hero-text{
+  margin-top: 10px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.client-hero-side{
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.06);
+}
+
+body.theme-light .client-hero-side{
+  background: rgba(255,255,255,.8);
+}
+
+.client-hero-side strong{
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.client-hero-side small{
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.timeline-item{
+  gap: 14px;
+  padding: 14px;
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)),
+    rgba(10, 30, 41, .38);
+}
+
+body.theme-light .timeline-item{
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.96), rgba(244,251,252,.92)),
+    rgba(255,255,255,.96);
+}
+
+.timeline-icon{
+  width: 50px;
+  height: 50px;
+  border-radius: 18px;
+  flex: 0 0 50px;
+  font-weight: 900;
+  color: var(--text);
+  background: linear-gradient(135deg, rgba(61,184,198,.18), rgba(196,155,89,.16));
+  border-color: rgba(61,184,198,.28);
+}
+
+.timeline-content{
+  flex: 1;
+  min-width: 0;
+}
+
+.timeline-tag-row{
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.timeline-summary-row{
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.timeline-summary-block{
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+}
+
+body.theme-light .timeline-summary-block{
+  background: rgba(246,252,253,.88);
+}
+
+.timeline-summary-block strong{
+  display: block;
+  color: var(--text);
+}
+
+.timeline-summary-block span{
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.timeline-summary-price{
+  text-align: right;
+}
+
 .gestor-geo-card{
   margin-top: 14px;
 }
@@ -4081,6 +4338,10 @@ body.theme-light .invoice-meta-card{
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .client-luxury-strip{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .zone-overview-metrics,
   .coverage-rider-stats{
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4089,6 +4350,8 @@ body.theme-light .invoice-meta-card{
 
 @media (max-width: 720px){
   .invoice-brand-row,
+  .client-spotlight,
+  .client-hero-banner,
   .attention-item,
   .zone-overview-head,
   .zone-overview-card-footer,
@@ -4106,6 +4369,26 @@ body.theme-light .invoice-meta-card{
     align-items: flex-start;
   }
 
+  .client-spotlight-side{
+    min-width: 0;
+    width: 100%;
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .client-hero-side{
+    min-width: 0;
+    width: 100%;
+  }
+
+  .timeline-summary-row{
+    grid-template-columns: 1fr;
+  }
+
+  .timeline-summary-price{
+    text-align: left;
+  }
+
   .zone-filter-toolbar{
     align-items: stretch;
   }
@@ -4114,6 +4397,8 @@ body.theme-light .invoice-meta-card{
 @media (max-width: 640px){
   .executive-grid,
   .brand-promise-grid,
+  .client-luxury-strip,
+  .client-activity-overview,
   .zone-overview-metrics,
   .coverage-rider-stats{
     grid-template-columns: 1fr;
@@ -4124,6 +4409,10 @@ body.theme-light .invoice-meta-card{
   .geo-panel-top{
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .client-hero-title{
+    font-size: 1.18rem;
   }
 }
 
