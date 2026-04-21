@@ -5200,16 +5200,17 @@ body.theme-light .topbar{
 }
 
 .topbar-left{
-  gap: 10px;
+  gap: 8px;
 }
 
 .app-logo{
-  width: clamp(118px, 18vw, 176px);
-  height: 56px;
+  width: clamp(112px, 13vw, 138px);
+  aspect-ratio: 67 / 38;
+  height: auto;
   flex: 0 0 auto;
   padding: 0;
-  overflow: hidden;
-  border-radius: 18px;
+  overflow: visible;
+  border-radius: 16px;
   background: none !important;
   box-shadow: none !important;
 }
@@ -5218,10 +5219,9 @@ body.theme-light .topbar{
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: cover;
-  object-position: center 48%;
-  transform: scale(1.12);
-  transform-origin: center center;
+  object-fit: contain;
+  object-position: center center;
+  transform: none;
 }
 
 .app-brand{
@@ -5337,7 +5337,6 @@ body.theme-light .account-billing-meta span{
   }
 
   .app-logo{
-    width: 132px;
-    height: 48px;
+    width: 120px;
   }
 }

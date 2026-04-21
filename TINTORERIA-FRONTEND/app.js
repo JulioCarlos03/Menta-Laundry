@@ -2888,8 +2888,8 @@ const BUSINESS_PROFILE = {
 
 const BUSINESS_PHONE_DIGITS = "18294487876";
 const BUSINESS_ASSETS = {
-  logo: "assets/menta-logo.png",
-  icon: "assets/menta-logo.png",
+  logo: "assets/menta-header-logo.png",
+  icon: "assets/menta-icon.svg",
 };
 
 const ZONE_CENTERS = {
