@@ -39,6 +39,27 @@ let localOrdersCache = [];
 let homeLocation = null;
 let riderLocation = null;
 let gestorZoneFilter = "all";
+const ORDER_WIZARD_STEPS = [
+  {
+    key: "service",
+    kicker: "Paso 1",
+    label: "Servicio y prendas",
+    copy: "Elige el tipo de servicio, los paquetes principales y como se calculara el pedido.",
+  },
+  {
+    key: "location",
+    kicker: "Paso 2",
+    label: "Ubicacion y horario",
+    copy: "Define la direccion, comparte el GPS si quieres y deja la agenda lista para la recogida.",
+  },
+  {
+    key: "review",
+    kicker: "Paso 3",
+    label: "Resumen y confirmacion",
+    copy: "Revisa el estimado, agrega notas utiles y confirma la solicitud final.",
+  },
+];
+let currentOrderWizardStep = 0;
 
 /* ============================================================
    DOM HELPERS
@@ -728,12 +749,19 @@ function updateDashboardHero() {
 function setDefaultFormValues() {
   const dateInput = qs("#homeDate");
   const timeInput = qs("#homeTime");
-  if (!dateInput || !timeInput || dateInput.value) return;
+  if (!dateInput || !timeInput) return;
 
   const now = new Date();
-  const hour = String(Math.min(now.getHours() + 1, 22)).padStart(2, "0");
-  dateInput.value = now.toISOString().slice(0, 10);
-  dateInput.min = dateInput.value;
+  const today = now.toISOString().slice(0, 10);
+  dateInput.min = today;
+  timeInput.min = "08:00";
+  timeInput.max = "22:00";
+
+  if (dateInput.value) return;
+
+  const nextHour = Math.min(Math.max(now.getHours() + 1, 8), 22);
+  const hour = String(nextHour).padStart(2, "0");
+  dateInput.value = today;
   timeInput.value = `${hour}:00`;
 }
 
@@ -3218,9 +3246,413 @@ function ensureClientOrderEnhancements() {
     input.addEventListener("change", updateOrderEstimatePreview);
   });
 
+  ensureClientOrderWizard();
   syncPricingModeUI();
   renderHomeLocationStatus();
   updateOrderEstimatePreview();
+}
+
+function appendOrderWizardNode(container, node) {
+  if (container && node) container.appendChild(node);
+}
+
+function formatPricingModeLabel(mode) {
+  const labels = {
+    por_libra: "Por libra",
+    por_prendas: "Por prendas",
+    mixto: "Mixto",
+  };
+  return labels[mode] || "Por libra";
+}
+
+function validateOrderWizardStep(stepIndex, options = {}) {
+  const silent = options.silent === true;
+  const fail = (message, node) => {
+    if (!silent) {
+      showWarning(message);
+      try {
+        node?.focus?.({ preventScroll: true });
+      } catch {
+        node?.focus?.();
+      }
+      node?.reportValidity?.();
+    }
+    return false;
+  };
+
+  if (stepIndex === 0) {
+    const packs = getSelectedPacks();
+    const pricingMode = qs("#homePricingMode")?.value || "por_libra";
+
+    if (!packs.length) {
+      return fail("Selecciona al menos un paquete principal antes de continuar.", qs('[name="homePacks"]'));
+    }
+
+    if ((pricingMode === "por_prendas" || pricingMode === "mixto") && !collectSelectedGarments().length) {
+      return fail("Selecciona al menos una prenda y su cantidad para ese tipo de cobro.", qs("[data-garment-toggle]"));
+    }
+
+    return true;
+  }
+
+  if (stepIndex === 1) {
+    const zoneInput = qs("#homeZone");
+    const addressInput = qs("#homeAddress");
+    const dateInput = qs("#homeDate");
+    const timeInput = qs("#homeTime");
+
+    if (!zoneInput?.value) {
+      return fail("Elige la zona donde pasaremos a recoger o entregar.", zoneInput);
+    }
+
+    if (!addressInput?.value.trim()) {
+      return fail("Agrega la direccion del servicio para continuar.", addressInput);
+    }
+
+    if (!dateInput?.value) {
+      return fail("Selecciona la fecha del servicio.", dateInput);
+    }
+
+    if (dateInput.min && dateInput.value < dateInput.min) {
+      return fail("La fecha no puede ser anterior al dia de hoy.", dateInput);
+    }
+
+    if (!timeInput?.value) {
+      return fail("Selecciona la hora del servicio.", timeInput);
+    }
+
+    if (timeInput.value < "08:00" || timeInput.value > "22:00") {
+      return fail("La agenda a domicilio opera entre 8:00 AM y 10:00 PM.", timeInput);
+    }
+
+    return true;
+  }
+
+  return true;
+}
+
+function renderOrderWizardReview() {
+  const reviewCard = qs("#orderWizardReviewCard");
+  if (!reviewCard) return;
+
+  const estimateOrder = buildHomeEstimateOrder();
+  const packs = getSelectedPacks();
+  const breakdown = buildOrderChargeBreakdown(estimateOrder);
+  const date = qs("#homeDate")?.value;
+  const time = qs("#homeTime")?.value;
+  const zone = qs("#homeZone")?.value || "Zona pendiente";
+  const address = qs("#homeAddress")?.value.trim();
+  const phone = qs("#homeContactPhone")?.value.trim();
+  const schedule = [date ? fmtDate(date) : "Fecha pendiente", time ? fmtTime(time) : "Hora pendiente"].join(" | ");
+  const garmentsText = breakdown.garments.length
+    ? breakdown.garments.map((item) => `${item.label} x${item.qty}`).join(", ")
+    : estimateOrder.pricingMode === "por_libra"
+      ? estimateOrder.lbs > 0
+        ? `${estimateOrder.lbs} lb estimadas`
+        : "Pesaje final al recibir"
+      : "Prendas pendientes";
+  const totalText = breakdown.weightPending
+    ? breakdown.total > 0
+      ? `Desde ${money(breakdown.total)}`
+      : "Por confirmar"
+    : money(breakdown.total);
+  const gpsText = homeLocation
+    ? `GPS listo en ${homeLocation.inferredZone || zone}`
+    : "GPS opcional";
+
+  reviewCard.innerHTML = `
+    <div class="order-review-top">
+      <div>
+        <div class="estimate-kicker">Control final</div>
+        <div class="estimate-title">Tu solicitud ya casi esta lista</div>
+      </div>
+      <div class="estimate-badge">${homeLocation ? "GPS listo" : "Revision manual"}</div>
+    </div>
+    <div class="order-review-grid">
+      <div class="order-review-item">
+        <span>Servicio</span>
+        <strong>${packs.length ? escapeHtml(packs.join(" + ")) : "Selecciona uno o varios paquetes"}</strong>
+      </div>
+      <div class="order-review-item">
+        <span>Tipo de cobro</span>
+        <strong>${escapeHtml(formatPricingModeLabel(estimateOrder.pricingMode))}</strong>
+      </div>
+      <div class="order-review-item">
+        <span>Prendas o libras</span>
+        <strong>${escapeHtml(garmentsText)}</strong>
+      </div>
+      <div class="order-review-item">
+        <span>Agenda</span>
+        <strong>${escapeHtml(schedule)}</strong>
+      </div>
+      <div class="order-review-item">
+        <span>Ubicacion</span>
+        <strong>${escapeHtml(address || "Direccion pendiente")} | ${escapeHtml(zone)}</strong>
+      </div>
+      <div class="order-review-item">
+        <span>Contacto</span>
+        <strong>${escapeHtml(phone || "Usaremos los datos principales de tu cuenta")} | ${escapeHtml(gpsText)}</strong>
+      </div>
+    </div>
+    <div class="order-review-note">
+      Estimado actual: <strong>${escapeHtml(totalText)}</strong>. Si el pedido incluye libras, el valor final puede ajustarse despues del pesaje y revision en recepcion.
+    </div>
+  `;
+}
+
+function renderOrderWizardState() {
+  const form = qs("#quickOrderForm");
+  if (!form || !qs("#orderWizardIntro")) return;
+
+  const lastStepIndex = ORDER_WIZARD_STEPS.length - 1;
+  const safeStep = Math.max(0, Math.min(lastStepIndex, currentOrderWizardStep));
+  if (safeStep !== currentOrderWizardStep) currentOrderWizardStep = safeStep;
+
+  const packs = getSelectedPacks();
+  const estimateOrder = buildHomeEstimateOrder();
+  const breakdown = buildOrderChargeBreakdown(estimateOrder);
+  const date = qs("#homeDate")?.value;
+  const zone = qs("#homeZone")?.value || "Zona";
+  const address = qs("#homeAddress")?.value.trim();
+  const totalText = breakdown.weightPending
+    ? breakdown.total > 0
+      ? `Desde ${money(breakdown.total)}`
+      : "Por confirmar"
+    : money(breakdown.total);
+  const stepCaptions = [
+    packs.length ? `${packs.length} paquete${packs.length === 1 ? "" : "s"} listo${packs.length === 1 ? "" : "s"}` : "Elige tu servicio",
+    address ? `${zone} | ${date ? fmtDate(date) : "Agenda pendiente"}` : "Agrega direccion y horario",
+    breakdown.lines.length ? totalText : "Revisa antes de confirmar",
+  ];
+
+  qsa(".order-step-pill").forEach((pill, index) => {
+    pill.classList.toggle("is-active", index === currentOrderWizardStep);
+    pill.classList.toggle("is-complete", index < currentOrderWizardStep);
+    pill.setAttribute("aria-current", index === currentOrderWizardStep ? "step" : "false");
+    const caption = pill.querySelector(".order-step-pill-caption");
+    if (caption) caption.textContent = stepCaptions[index] || "";
+  });
+
+  qsa(".order-step-panel").forEach((panel, index) => {
+    const isActive = index === currentOrderWizardStep;
+    panel.classList.toggle("is-active", isActive);
+    panel.hidden = !isActive;
+  });
+
+  const prevBtn = qs("#orderWizardPrevBtn");
+  const nextBtn = qs("#orderWizardNextBtn");
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const actionCopy = qs("#orderWizardActionCopy");
+
+  if (prevBtn) prevBtn.hidden = currentOrderWizardStep === 0;
+  if (nextBtn) {
+    nextBtn.hidden = currentOrderWizardStep === lastStepIndex;
+    nextBtn.textContent = currentOrderWizardStep === lastStepIndex - 1 ? "Ir al resumen" : "Continuar";
+  }
+  if (submitBtn) {
+    submitBtn.hidden = currentOrderWizardStep !== lastStepIndex;
+    submitBtn.textContent = "Confirmar pedido";
+  }
+  if (actionCopy) {
+    actionCopy.innerHTML = `
+      <span>Paso ${currentOrderWizardStep + 1} de ${ORDER_WIZARD_STEPS.length}</span>
+      <strong>${ORDER_WIZARD_STEPS[currentOrderWizardStep].label}</strong>
+    `;
+  }
+
+  renderOrderWizardReview();
+}
+
+function goToOrderWizardStep(targetStep, options = {}) {
+  const lastStepIndex = ORDER_WIZARD_STEPS.length - 1;
+  const nextStep = Math.max(0, Math.min(lastStepIndex, Number(targetStep) || 0));
+
+  if (!options.force && nextStep > currentOrderWizardStep) {
+    for (let step = currentOrderWizardStep; step < nextStep; step += 1) {
+      if (!validateOrderWizardStep(step)) return false;
+    }
+  }
+
+  currentOrderWizardStep = nextStep;
+  renderOrderWizardState();
+
+  const activePanel = qs(`.order-step-panel[data-step="${currentOrderWizardStep}"]`);
+  if (!options.skipScroll) {
+    activePanel?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+  if (!options.skipFocus) {
+    const focusTarget = activePanel?.querySelector("input, select, textarea, button");
+    try {
+      focusTarget?.focus?.({ preventScroll: true });
+    } catch {
+      focusTarget?.focus?.();
+    }
+  }
+
+  return true;
+}
+
+function ensureClientOrderWizard() {
+  const form = qs("#quickOrderForm");
+  if (!form) return;
+
+  form.noValidate = true;
+
+  let intro = qs("#orderWizardIntro");
+  if (!intro) {
+    intro = document.createElement("div");
+    intro.id = "orderWizardIntro";
+    intro.className = "order-wizard-shell field-group-wide";
+    form.prepend(intro);
+  }
+
+  intro.innerHTML = `
+    <div class="order-wizard-intro">
+      <div>
+        <div class="order-wizard-kicker">Solicitud guiada</div>
+        <div class="order-wizard-title">Agenda tu servicio en 3 pasos</div>
+        <div class="order-wizard-copy">
+          Primero definimos el servicio, luego cerramos la ubicacion y al final revisas todo antes de enviar.
+        </div>
+      </div>
+      <div class="order-wizard-badge">Agenda privada</div>
+    </div>
+    <div class="order-wizard-progress">
+      ${ORDER_WIZARD_STEPS.map((step, index) => `
+        <button class="order-step-pill" type="button" data-order-step-target="${index}">
+          <span class="order-step-pill-index">${index + 1}</span>
+          <span class="order-step-pill-copy">
+            <span class="order-step-pill-label">${step.label}</span>
+            <span class="order-step-pill-caption">Pendiente</span>
+          </span>
+        </button>
+      `).join("")}
+    </div>
+  `;
+
+  let panelsHost = qs("#orderWizardPanels");
+  if (!panelsHost) {
+    panelsHost = document.createElement("div");
+    panelsHost.id = "orderWizardPanels";
+    panelsHost.className = "order-wizard-panels field-group-wide";
+    intro.insertAdjacentElement("afterend", panelsHost);
+  }
+
+  ORDER_WIZARD_STEPS.forEach((step, index) => {
+    let panel = panelsHost.querySelector(`.order-step-panel[data-step="${index}"]`);
+    if (!panel) {
+      panel = document.createElement("section");
+      panel.className = "order-step-panel";
+      panel.dataset.step = String(index);
+      panel.innerHTML = `
+        <div class="order-step-header">
+          <div>
+            <div class="order-step-kicker">${step.kicker}</div>
+            <div class="order-step-title">${step.label}</div>
+            <div class="order-step-copy">${step.copy}</div>
+          </div>
+          <div class="order-step-marker">${step.key.toUpperCase()}</div>
+        </div>
+        <div class="order-step-content"></div>
+      `;
+      panelsHost.appendChild(panel);
+    }
+  });
+
+  const serviceContent = panelsHost.querySelector('.order-step-panel[data-step="0"] .order-step-content');
+  const locationContent = panelsHost.querySelector('.order-step-panel[data-step="1"] .order-step-content');
+  const reviewContent = panelsHost.querySelector('.order-step-panel[data-step="2"] .order-step-content');
+
+  appendOrderWizardNode(serviceContent, qs("#homePickupType")?.closest(".field-group"));
+  appendOrderWizardNode(serviceContent, qs("#homePackSelector")?.closest(".field-group"));
+  appendOrderWizardNode(serviceContent, qs("#homePricingMode")?.closest(".field-group"));
+  appendOrderWizardNode(serviceContent, qs("#homeWeightField"));
+  appendOrderWizardNode(serviceContent, qs("#homeGarmentField"));
+  appendOrderWizardNode(serviceContent, qs("#quickOrderForm .chip-group")?.closest(".field-group"));
+
+  appendOrderWizardNode(locationContent, qs("#homeZone")?.closest(".field-group"));
+  appendOrderWizardNode(locationContent, qs("#homeAddress")?.closest(".field-group"));
+  appendOrderWizardNode(locationContent, qs("#homeContactPhone")?.closest(".field-group"));
+  appendOrderWizardNode(locationContent, qs("#homeLocationField"));
+  appendOrderWizardNode(locationContent, qs("#homeDate")?.closest(".field-row"));
+
+  let reviewCard = qs("#orderWizardReviewCard");
+  if (!reviewCard) {
+    reviewCard = document.createElement("div");
+    reviewCard.id = "orderWizardReviewCard";
+    reviewCard.className = "order-review-card";
+  }
+  appendOrderWizardNode(reviewContent, reviewCard);
+  appendOrderWizardNode(reviewContent, qs("#homeNotes")?.closest(".field-group"));
+  appendOrderWizardNode(reviewContent, qs("#homeEstimateCard"));
+
+  let actions = form.querySelector(".form-actions");
+  if (!actions) {
+    actions = document.createElement("div");
+    actions.className = "form-actions field-group-wide";
+    form.appendChild(actions);
+  }
+
+  const submitBtn = actions.querySelector('button[type="submit"]') || form.querySelector('button[type="submit"]');
+  let actionsShell = qs("#orderWizardActionsShell");
+  if (!actionsShell) {
+    actionsShell = document.createElement("div");
+    actionsShell.id = "orderWizardActionsShell";
+    actionsShell.className = "order-wizard-actions-shell";
+
+    const copy = document.createElement("div");
+    copy.id = "orderWizardActionCopy";
+    copy.className = "order-wizard-action-copy";
+
+    const buttons = document.createElement("div");
+    buttons.className = "order-wizard-action-buttons";
+
+    const prevBtn = document.createElement("button");
+    prevBtn.id = "orderWizardPrevBtn";
+    prevBtn.type = "button";
+    prevBtn.className = "btn btn-outline";
+    prevBtn.textContent = "Anterior";
+
+    const nextBtn = document.createElement("button");
+    nextBtn.id = "orderWizardNextBtn";
+    nextBtn.type = "button";
+    nextBtn.className = "btn btn-primary";
+    nextBtn.textContent = "Continuar";
+
+    buttons.append(prevBtn, nextBtn);
+    if (submitBtn) {
+      submitBtn.classList.add("order-wizard-submit");
+      buttons.appendChild(submitBtn);
+    }
+
+    actions.textContent = "";
+    actions.classList.add("order-wizard-actions", "field-group-wide");
+    actionsShell.append(copy, buttons);
+    actions.appendChild(actionsShell);
+  }
+
+  qsa("[data-order-step-target]").forEach((button) => {
+    if (button.dataset.wizardBound === "1") return;
+    button.dataset.wizardBound = "1";
+    button.addEventListener("click", () => {
+      const target = Number(button.dataset.orderStepTarget || 0);
+      goToOrderWizardStep(target, { skipFocus: target === currentOrderWizardStep });
+    });
+  });
+
+  const prevBtn = qs("#orderWizardPrevBtn");
+  if (prevBtn && prevBtn.dataset.wizardBound !== "1") {
+    prevBtn.dataset.wizardBound = "1";
+    prevBtn.addEventListener("click", () => goToOrderWizardStep(currentOrderWizardStep - 1));
+  }
+
+  const nextBtn = qs("#orderWizardNextBtn");
+  if (nextBtn && nextBtn.dataset.wizardBound !== "1") {
+    nextBtn.dataset.wizardBound = "1";
+    nextBtn.addEventListener("click", () => goToOrderWizardStep(currentOrderWizardStep + 1));
+  }
+
+  renderOrderWizardState();
 }
 
 function ensureAuthEnhancements() {
@@ -4067,6 +4499,8 @@ function updateOrderEstimatePreview() {
       noteNode.textContent = `${homeLocation ? "Ubicacion real incluida. " : ""}Incluye ITBIS y extras seleccionados. El total final puede ajustarse segun revision.`;
     }
   }
+
+  renderOrderWizardState();
 }
 
 function updateDashboardHero() {
@@ -4256,7 +4690,7 @@ function normalizeStaticCopy() {
   if (quickTitle) quickTitle.textContent = "Solicitar servicio a domicilio";
   if (quickSubtitle) {
     quickSubtitle.textContent =
-      "Selecciona varios paquetes si lo necesitas y define si el cobro sera por libra, por prendas o mixto.";
+      "Completa 3 pasos claros: servicio, ubicacion y confirmacion final.";
   }
 
   const homeZoneLabel = qs("#homeZone")?.closest(".field-group")?.querySelector("label");
@@ -4268,7 +4702,7 @@ function normalizeStaticCopy() {
   const homePackLabel = qs("#homePackSelector")?.closest(".field-group")?.querySelector("label");
   const homePricingLabel = qs("#homePricingMode")?.closest(".field-group")?.querySelector("label");
   const homeGarmentsLabel = qs("#homeGarmentField")?.querySelector("label");
-  const homeExtrasLabel = qs(".chip-group")?.closest(".field-group")?.querySelector("label");
+  const homeExtrasLabel = qs("#quickOrderForm .chip-group")?.closest(".field-group")?.querySelector("label");
   const homeNotesLabel = qs("#homeNotes")?.closest(".field-group")?.querySelector("label");
 
   if (homeZoneLabel) homeZoneLabel.textContent = "Zona";
@@ -4373,6 +4807,21 @@ function normalizeStaticCopy() {
 async function onCreateOrder(e) {
   e.preventDefault();
 
+  if (currentOrderWizardStep < ORDER_WIZARD_STEPS.length - 1) {
+    goToOrderWizardStep(currentOrderWizardStep + 1);
+    return;
+  }
+
+  if (!validateOrderWizardStep(0)) {
+    goToOrderWizardStep(0, { force: true, skipScroll: true, skipFocus: true });
+    return;
+  }
+
+  if (!validateOrderWizardStep(1)) {
+    goToOrderWizardStep(1, { force: true, skipScroll: true, skipFocus: true });
+    return;
+  }
+
   const extras = Array.from(qs("#quickOrderForm").querySelectorAll(".chip input:checked")).map((i) => i.value);
   const packs = getSelectedPacks();
   const pricingMode = qs("#homePricingMode")?.value || "por_libra";
@@ -4415,6 +4864,7 @@ async function onCreateOrder(e) {
     setDefaultFormValues();
     syncPricingModeUI();
     updateOrderEstimatePreview();
+    goToOrderWizardStep(0, { force: true, skipScroll: true, skipFocus: true });
     await loadAll();
   } catch (err) {
     showError(err.message || "Error creando pedido");
