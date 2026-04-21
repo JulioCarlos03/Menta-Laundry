@@ -4082,16 +4082,26 @@ function ensureAuthEnhancements() {
 
   hero.innerHTML = `
     <div class="auth-card-hero-row">
-      <div class="auth-card-eyebrow">Acceso privado</div>
+      <div class="auth-card-eyebrow">Acceso premium</div>
       <div class="auth-card-hero-badge">${BUSINESS_PROFILE.name}</div>
     </div>
-    <div class="auth-card-hero-title">Accede o crea tu cuenta desde una recepcion mucho mas cuidada.</div>
+    <div class="auth-card-hero-title">Iniciar sesion o crear cuenta</div>
     <div class="auth-card-hero-copy">
-      Cliente, gestor, repartidor y caja comparten un mismo punto de entrada con soporte, verificacion y asistencia directa.
+      Entra a tu panel privado o abre una cuenta nueva desde una experiencia mas clara, sobria y asistida.
+    </div>
+    <div class="auth-card-points">
+      <div class="auth-card-point">
+        <strong>Acceso centralizado</strong>
+        <span>Cliente, gestor, repartidor y caja en un mismo punto de entrada.</span>
+      </div>
+      <div class="auth-card-point">
+        <strong>Soporte directo</strong>
+        <span>WhatsApp, llamada y correo cuando necesites ayuda o verificacion.</span>
+      </div>
     </div>
     <div class="auth-card-meta">
       <span>${BUSINESS_PROFILE.phone}</span>
-      <span>Iniciar sesion o crear cuenta</span>
+      <span>Verificacion por correo</span>
     </div>
   `;
 
@@ -4104,7 +4114,7 @@ function ensureAuthEnhancements() {
       loginKicker.className = "auth-panel-kicker";
       loginPanel.prepend(loginKicker);
     }
-    loginKicker.textContent = "Panel de acceso";
+    loginKicker.textContent = "Acceso principal";
   }
   if (registerPanel) {
     let registerKicker = registerPanel.querySelector(".auth-panel-kicker");
