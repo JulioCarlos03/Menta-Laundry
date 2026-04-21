@@ -4091,17 +4091,13 @@ function ensureAuthEnhancements() {
     </div>
     <div class="auth-card-points">
       <div class="auth-card-point">
-        <strong>Acceso centralizado</strong>
-        <span>Cliente, gestor, repartidor y caja en un mismo punto de entrada.</span>
-      </div>
-      <div class="auth-card-point">
         <strong>Soporte directo</strong>
         <span>WhatsApp, llamada y correo cuando necesites ayuda o verificacion.</span>
       </div>
     </div>
     <div class="auth-card-meta">
       <span>${BUSINESS_PROFILE.phone}</span>
-      <span>Verificacion por correo</span>
+      <span>${BUSINESS_PROFILE.email}</span>
     </div>
   `;
 
