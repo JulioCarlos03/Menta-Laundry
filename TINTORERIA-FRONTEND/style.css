@@ -4062,6 +4062,165 @@ body.theme-light .client-hero-side{
   line-height: 1.5;
 }
 
+.home-hero-premium{
+  border-color: rgba(130,205,176,.18);
+  background:
+    radial-gradient(520px 220px at 0% 0%, rgba(130,205,176,.16), transparent 70%),
+    radial-gradient(420px 220px at 100% 0%, rgba(196,155,89,.12), transparent 72%),
+    rgba(255,255,255,.03);
+}
+
+body.theme-light .home-hero-premium{
+  background:
+    radial-gradient(520px 220px at 0% 0%, rgba(130,205,176,.12), transparent 70%),
+    radial-gradient(420px 220px at 100% 0%, rgba(196,155,89,.10), transparent 72%),
+    rgba(255,255,255,.96);
+}
+
+.home-lounge-strip{
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.home-lounge-card{
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+}
+
+body.theme-light .home-lounge-card{
+  background: rgba(246,252,253,.9);
+}
+
+.home-lounge-card span,
+.home-concierge-card span,
+.home-focus-item span{
+  display: block;
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.home-lounge-card strong,
+.home-concierge-card strong,
+.home-focus-item strong{
+  display: block;
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 1.06rem;
+  line-height: 1.2;
+}
+
+.home-lounge-card small,
+.home-concierge-card small,
+.home-focus-item small{
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.home-lounge-board{
+  margin-top: 18px;
+}
+
+.home-focus-shell{
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.home-focus-top{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.home-focus-title{
+  margin-top: 6px;
+  font-size: 1.28rem;
+  font-weight: 900;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.home-focus-status{
+  flex: 0 0 auto;
+}
+
+.home-focus-grid{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.home-focus-item{
+  padding: 15px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+}
+
+body.theme-light .home-focus-item{
+  background: rgba(246,252,253,.88);
+}
+
+.home-focus-note{
+  padding: 15px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(135deg, rgba(130,205,176,.10), rgba(155,217,255,.08)),
+    rgba(255,255,255,.03);
+}
+
+body.theme-light .home-focus-note{
+  background:
+    linear-gradient(135deg, rgba(130,205,176,.10), rgba(155,217,255,.08)),
+    rgba(255,255,255,.92);
+}
+
+.home-focus-note strong{
+  display: block;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.home-focus-note span{
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.home-focus-actions{
+  margin-top: 2px;
+}
+
+.home-concierge-grid{
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.home-concierge-card{
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+}
+
+body.theme-light .home-concierge-card{
+  background: rgba(246,252,253,.9);
+}
+
 .client-activity-focus-card,
 .client-activity-feed-card{
   margin-top: 16px;
@@ -4363,7 +4522,10 @@ body.theme-light .timeline-summary-block{
 
 @media (max-width: 960px){
   .activity-overview-grid,
-  .activity-focus-grid{
+  .activity-focus-grid,
+  .home-lounge-strip,
+  .home-focus-grid,
+  .home-concierge-grid{
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -4384,12 +4546,20 @@ body.theme-light .timeline-summary-block{
   }
 
   .activity-overview-grid,
-  .activity-focus-grid{
+  .activity-focus-grid,
+  .home-lounge-strip,
+  .home-focus-grid,
+  .home-concierge-grid{
     grid-template-columns: 1fr;
   }
 
   .activity-filter-chip{
     width: 100%;
+  }
+
+  .home-focus-top{
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .timeline-order-moment,
