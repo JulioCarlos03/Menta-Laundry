@@ -3968,36 +3968,153 @@ function ensureAuthEnhancements() {
     authView.appendChild(shell);
   }
 
+  ensureAuthSupportBlocks();
+
   const showcase = authView.querySelector(".auth-showcase");
   if (showcase) {
     showcase.innerHTML = `
+      <div class="auth-showcase-brand">
+        <div class="auth-showcase-mark">
+          <img src="${BUSINESS_ASSETS.logo}" alt="${BUSINESS_PROFILE.name}" />
+        </div>
+        <div class="auth-showcase-brand-copy">
+          <span>${BUSINESS_PROFILE.name}</span>
+          <strong>${BUSINESS_PROFILE.tagline}</strong>
+          <small>${BUSINESS_PROFILE.phone} | ${BUSINESS_PROFILE.email}</small>
+        </div>
+      </div>
       <div class="auth-kicker">Recepcion y cuidado textil</div>
-      <h1 class="auth-title">Una recepcion premium para una tintoreria que inspira confianza.</h1>
+      <h1 class="auth-title">Una primera impresion premium para una tintoreria que si parece una marca real.</h1>
       <p class="auth-copy">
         ${BUSINESS_PROFILE.name} combina recogida, seguimiento, facturacion y atencion
-        con una presencia mas sobria, elegante y lista para presentarse ante terceros.
+        con una presencia mas sobria, elegante y lista para compartirse con clientes y terceros.
       </p>
-      <div class="auth-feature-grid">
-        <div class="auth-feature-card"><span class="feature-pill">Seguimiento</span><p>Consulta cada pedido con una lectura clara, limpia y profesional.</p></div>
-        <div class="auth-feature-card"><span class="feature-pill">Coordinacion</span><p>Gestiona local, repartidores y clientes desde una misma experiencia.</p></div>
-        <div class="auth-feature-card"><span class="feature-pill">Servicio</span><p>Opera por libra, por prendas o con paquetes combinados segun el caso.</p></div>
+      <div class="auth-trust-grid">
+        <div class="auth-trust-card">
+          <span>Horario</span>
+          <strong>${BUSINESS_PROFILE.schedule}</strong>
+        </div>
+        <div class="auth-trust-card">
+          <span>Canal directo</span>
+          <strong>${BUSINESS_PROFILE.phone}</strong>
+        </div>
+        <div class="auth-trust-card">
+          <span>Cuenta principal</span>
+          <strong>${BUSINESS_PROFILE.email}</strong>
+        </div>
       </div>
-      <div class="auth-preview">
+      <div class="auth-feature-grid auth-feature-grid-premium">
+        <div class="auth-feature-card">
+          <span class="feature-pill">Seguimiento</span>
+          <strong>Lectura limpia del pedido</strong>
+          <p>Consulta cada servicio con estado, factura, detalle y mapa en una sola experiencia.</p>
+        </div>
+        <div class="auth-feature-card">
+          <span class="feature-pill">Coordinacion</span>
+          <strong>Operacion mas ordenada</strong>
+          <p>Clientes, gestor, repartidores y caja conviven desde una recepcion visual mucho mas clara.</p>
+        </div>
+        <div class="auth-feature-card auth-feature-card-wide">
+          <span class="feature-pill">Servicio</span>
+          <strong>Preparada para crecer</strong>
+          <p>Opera por libra, por prendas o en formato mixto con un tono mas serio, mas premium y mas confiable.</p>
+        </div>
+      </div>
+      <div class="auth-preview auth-preview-premium">
         <div class="preview-header">
-          <span class="preview-label">Flujo de servicio</span>
+          <span class="preview-label">Flujo privado</span>
           <span class="preview-note">${BUSINESS_PROFILE.schedule}</span>
         </div>
         <div class="preview-steps">
           <div class="preview-step preview-step-active">Solicitud</div>
-          <div class="preview-step">Asignado</div>
-          <div class="preview-step">En camino</div>
-          <div class="preview-step">Entregado</div>
+          <div class="preview-step">Coordinacion</div>
+          <div class="preview-step">Ruta</div>
+          <div class="preview-step">Entrega</div>
         </div>
       </div>
     `;
   }
 
   authView.querySelector(".auth-metrics")?.remove();
+
+  authCard.classList.add("auth-card-premium");
+
+  let hero = authCard.querySelector(".auth-card-hero");
+  if (!hero) {
+    hero = document.createElement("div");
+    hero.className = "auth-card-hero";
+  }
+
+  if (!authCard.querySelector(".auth-login-panel") || !authCard.querySelector(".auth-register-panel")) {
+    const titles = authCard.querySelectorAll("h2");
+    const subtitles = authCard.querySelectorAll(".auth-subtitle");
+    const loginPanel = document.createElement("section");
+    loginPanel.className = "auth-panel auth-login-panel";
+    const registerPanel = document.createElement("section");
+    registerPanel.className = "auth-panel auth-register-panel";
+
+    [
+      titles[0],
+      subtitles[0],
+      qs("#loginMessage"),
+      qs("#loginForm"),
+      qs("#authQuickLinks"),
+      qs("#authActionPanel"),
+      authCard.querySelector(".auth-hint"),
+    ].forEach((node) => {
+      if (node) loginPanel.appendChild(node);
+    });
+
+    [
+      titles[1],
+      subtitles[1],
+      qs("#registerMessage"),
+      qs("#registerForm"),
+    ].forEach((node) => {
+      if (node) registerPanel.appendChild(node);
+    });
+
+    authCard.innerHTML = "";
+    authCard.append(hero, loginPanel, registerPanel);
+  } else if (authCard.firstElementChild !== hero) {
+    authCard.prepend(hero);
+  }
+
+  hero.innerHTML = `
+    <div class="auth-card-hero-row">
+      <div class="auth-card-eyebrow">Acceso privado</div>
+      <div class="auth-card-hero-badge">${BUSINESS_PROFILE.name}</div>
+    </div>
+    <div class="auth-card-hero-title">Accede o crea tu cuenta desde una recepcion mucho mas cuidada.</div>
+    <div class="auth-card-hero-copy">
+      Cliente, gestor, repartidor y caja comparten un mismo punto de entrada con soporte, verificacion y asistencia directa.
+    </div>
+    <div class="auth-card-meta">
+      <span>${BUSINESS_PROFILE.phone}</span>
+      <span>${BUSINESS_PROFILE.email}</span>
+    </div>
+  `;
+
+  const loginPanel = authCard.querySelector(".auth-login-panel");
+  const registerPanel = authCard.querySelector(".auth-register-panel");
+  if (loginPanel) {
+    let loginKicker = loginPanel.querySelector(".auth-panel-kicker");
+    if (!loginKicker) {
+      loginKicker = document.createElement("div");
+      loginKicker.className = "auth-panel-kicker";
+      loginPanel.prepend(loginKicker);
+    }
+    loginKicker.textContent = "Panel de acceso";
+  }
+  if (registerPanel) {
+    let registerKicker = registerPanel.querySelector(".auth-panel-kicker");
+    if (!registerKicker) {
+      registerKicker = document.createElement("div");
+      registerKicker.className = "auth-panel-kicker";
+      registerPanel.prepend(registerKicker);
+    }
+    registerKicker.textContent = "Cuenta nueva";
+  }
 
   const titles = authCard.querySelectorAll("h2");
   if (titles[0]) titles[0].textContent = "Iniciar sesion";
@@ -4015,6 +4132,8 @@ function ensureAuthEnhancements() {
   if (loginGroups[1]) loginGroups[1].querySelector("label").textContent = "Contrasena";
   if (qs("#loginPassword")) qs("#loginPassword").placeholder = "Minimo 6 caracteres";
   if (qs("#loginForm .btn")) qs("#loginForm .btn").textContent = "Entrar al panel";
+  if (qs("#showForgotPasswordBtn")) qs("#showForgotPasswordBtn").textContent = "Recuperar acceso";
+  if (qs("#showResendVerificationBtn")) qs("#showResendVerificationBtn").textContent = "Verificar correo";
 
   const registerGroups = qs("#registerForm")?.querySelectorAll(".field-group") || [];
   if (registerGroups[1]) registerGroups[1].querySelector("label").textContent = "Correo electronico";
