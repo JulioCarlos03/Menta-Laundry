@@ -3980,7 +3980,7 @@ function ensureAuthEnhancements() {
         <div class="auth-showcase-brand-copy">
           <span>${BUSINESS_PROFILE.name}</span>
           <strong>${BUSINESS_PROFILE.tagline}</strong>
-          <small>${BUSINESS_PROFILE.phone} | ${BUSINESS_PROFILE.email}</small>
+          <small>${BUSINESS_PROFILE.phone} | acceso privado y registro</small>
         </div>
       </div>
       <div class="auth-kicker">Recepcion y cuidado textil</div>
@@ -3999,8 +3999,8 @@ function ensureAuthEnhancements() {
           <strong>${BUSINESS_PROFILE.phone}</strong>
         </div>
         <div class="auth-trust-card">
-          <span>Cuenta principal</span>
-          <strong>${BUSINESS_PROFILE.email}</strong>
+          <span>Acceso</span>
+          <strong>Iniciar sesion o crear cuenta</strong>
         </div>
       </div>
       <div class="auth-feature-grid auth-feature-grid-premium">
@@ -4091,7 +4091,7 @@ function ensureAuthEnhancements() {
     </div>
     <div class="auth-card-meta">
       <span>${BUSINESS_PROFILE.phone}</span>
-      <span>${BUSINESS_PROFILE.email}</span>
+      <span>Iniciar sesion o crear cuenta</span>
     </div>
   `;
 
