@@ -3111,6 +3111,62 @@ function attachAppEvents() {
   });
 }
 
+function setAuthMode(mode = "login", { focusField = false } = {}) {
+  const authCard = qs("#authView .auth-card");
+  if (!authCard) return;
+
+  const nextMode = mode === "register" ? "register" : "login";
+  authCard.dataset.authMode = nextMode;
+
+  authCard.querySelectorAll("[data-auth-mode-target]").forEach((btn) => {
+    const isActive = btn.dataset.authModeTarget === nextMode;
+    btn.classList.toggle("is-active", isActive);
+    btn.setAttribute("aria-selected", String(isActive));
+    btn.tabIndex = isActive ? 0 : -1;
+  });
+
+  authCard.querySelectorAll("[data-auth-panel]").forEach((panel) => {
+    const isActive = panel.dataset.authPanel === nextMode;
+    panel.hidden = !isActive;
+    panel.classList.toggle("is-active", isActive);
+    panel.setAttribute("aria-hidden", String(!isActive));
+  });
+
+  if (!focusField) return;
+
+  const focusSelector = nextMode === "register" ? "#registerName" : "#loginEmail";
+  requestAnimationFrame(() => {
+    qs(focusSelector)?.focus();
+  });
+}
+
+function bindAuthModeSwitch(switcher) {
+  if (!switcher || switcher.dataset.bound === "1") return;
+  switcher.dataset.bound = "1";
+
+  switcher.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-auth-mode-target]");
+    if (!button) return;
+    setAuthMode(button.dataset.authModeTarget, { focusField: false });
+  });
+
+  switcher.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+
+    const tabs = Array.from(switcher.querySelectorAll("[data-auth-mode-target]"));
+    const currentIndex = tabs.findIndex((tab) => tab === document.activeElement);
+    const baseIndex = currentIndex >= 0 ? currentIndex : tabs.findIndex((tab) => tab.classList.contains("is-active"));
+    const delta = event.key === "ArrowRight" ? 1 : -1;
+    const nextIndex = (baseIndex + delta + tabs.length) % tabs.length;
+    const nextTab = tabs[nextIndex];
+    if (!nextTab) return;
+
+    event.preventDefault();
+    nextTab.focus();
+    setAuthMode(nextTab.dataset.authModeTarget, { focusField: false });
+  });
+}
+
 function attachAuthEvents() {
   qs("#loginForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -3143,6 +3199,15 @@ function attachAuthEvents() {
       const tone = data?.emailDeliveryFailed ? "warning" : "success";
       setInlineMessage("#registerMessage", buildAuthResponseHtml(data, data.message), tone, { html: true });
       if (data?.user?.email) qs("#loginEmail").value = data.user.email;
+      clearInlineMessage("#loginMessage");
+      setAuthMode("login");
+      setInlineMessage(
+        "#loginMessage",
+        data?.emailDeliveryFailed
+          ? "Cuenta creada. Si no recibes el correo ahora mismo, usa Verificar correo para reenviarlo."
+          : "Cuenta creada. Revisa tu correo y luego inicia sesion.",
+        tone
+      );
       if (data?.emailDeliveryFailed) {
         showWarning(getFriendlyAuthMessage(data, "La cuenta fue creada, pero el correo no pudo enviarse ahora mismo."));
       } else {
@@ -4103,7 +4168,48 @@ function ensureAuthEnhancements() {
 
   const loginPanel = authCard.querySelector(".auth-login-panel");
   const registerPanel = authCard.querySelector(".auth-register-panel");
+  let modeSwitch = authCard.querySelector(".auth-mode-switch");
+  if (!modeSwitch) {
+    modeSwitch = document.createElement("div");
+    modeSwitch.className = "auth-mode-switch";
+    modeSwitch.setAttribute("role", "tablist");
+    modeSwitch.setAttribute("aria-label", "Acceso de cuenta");
+  }
+
+  modeSwitch.innerHTML = `
+    <button
+      id="authModeLoginTab"
+      class="auth-mode-tab"
+      type="button"
+      role="tab"
+      aria-controls="authLoginPanel"
+      data-auth-mode-target="login"
+    >
+      <strong>Iniciar sesion</strong>
+      <small>Acceso rapido a tu panel</small>
+    </button>
+    <button
+      id="authModeRegisterTab"
+      class="auth-mode-tab"
+      type="button"
+      role="tab"
+      aria-controls="authRegisterPanel"
+      data-auth-mode-target="register"
+    >
+      <strong>Crear cuenta</strong>
+      <small>Alta nueva para cliente</small>
+    </button>
+  `;
+
+  if (hero.nextElementSibling !== modeSwitch) {
+    hero.insertAdjacentElement("afterend", modeSwitch);
+  }
+
   if (loginPanel) {
+    loginPanel.id = "authLoginPanel";
+    loginPanel.dataset.authPanel = "login";
+    loginPanel.setAttribute("role", "tabpanel");
+    loginPanel.setAttribute("aria-labelledby", "authModeLoginTab");
     let loginKicker = loginPanel.querySelector(".auth-panel-kicker");
     if (!loginKicker) {
       loginKicker = document.createElement("div");
@@ -4113,6 +4219,10 @@ function ensureAuthEnhancements() {
     loginKicker.textContent = "Acceso principal";
   }
   if (registerPanel) {
+    registerPanel.id = "authRegisterPanel";
+    registerPanel.dataset.authPanel = "register";
+    registerPanel.setAttribute("role", "tabpanel");
+    registerPanel.setAttribute("aria-labelledby", "authModeRegisterTab");
     let registerKicker = registerPanel.querySelector(".auth-panel-kicker");
     if (!registerKicker) {
       registerKicker = document.createElement("div");
@@ -4163,6 +4273,9 @@ function ensureAuthEnhancements() {
       </div>
     `;
   }
+
+  bindAuthModeSwitch(modeSwitch);
+  setAuthMode(authCard.dataset.authMode || "login");
 }
 
 function bindInvoiceAndDetailButtons(root = document) {

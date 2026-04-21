@@ -6411,6 +6411,104 @@ body.theme-light .auth-card-hero{
   font-weight: 700;
 }
 
+.auth-mode-switch{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.08)),
+    rgba(255,255,255,.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.25),
+    0 12px 24px rgba(58, 116, 126, .05);
+}
+
+body.theme-light .auth-mode-switch{
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.94), rgba(245,251,250,.92)),
+    rgba(255,255,255,.88);
+}
+
+.auth-mode-tab{
+  appearance: none;
+  border: none;
+  width: 100%;
+  min-height: 62px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform .18s ease,
+    background .18s ease,
+    box-shadow .18s ease,
+    color .18s ease;
+}
+
+.auth-mode-tab strong,
+.auth-mode-tab small{
+  display: block;
+}
+
+.auth-mode-tab strong{
+  color: inherit;
+  font-size: .95rem;
+  line-height: 1.15;
+}
+
+.auth-mode-tab small{
+  margin-top: 5px;
+  color: inherit;
+  font-size: .78rem;
+  opacity: .92;
+  line-height: 1.35;
+}
+
+.auth-mode-tab:hover{
+  transform: translateY(-1px);
+  color: var(--text);
+}
+
+.auth-mode-tab:focus-visible{
+  outline: 2px solid rgba(61,184,198,.45);
+  outline-offset: 2px;
+}
+
+.auth-mode-tab.is-active{
+  color: var(--text);
+  background:
+    linear-gradient(135deg, rgba(61,184,198,.18), rgba(74,137,199,.12)),
+    rgba(255,255,255,.44);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.32),
+    0 10px 18px rgba(58, 116, 126, .08);
+}
+
+.auth-panel[hidden]{
+  display: none !important;
+}
+
+.auth-panel.is-active{
+  animation: authPanelReveal .24s ease;
+}
+
+@keyframes authPanelReveal{
+  from{
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to{
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .auth-panel{
   position: relative;
   overflow: hidden;
@@ -6520,6 +6618,16 @@ body.theme-light .auth-register-panel{
   .auth-panel{
     padding: 20px 16px;
     border-radius: 22px;
+  }
+
+  .auth-mode-switch{
+    padding: 6px;
+    border-radius: 20px;
+  }
+
+  .auth-mode-tab{
+    min-height: 58px;
+    padding: 12px 14px;
   }
 
   .auth-card-hero-title{
