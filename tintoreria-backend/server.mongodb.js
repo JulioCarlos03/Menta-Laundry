@@ -783,6 +783,42 @@ app.get(
   })
 );
 
+app.get(
+  "/api/bootstrap",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    let ordersQuery = {};
+
+    if (req.user.role === "cliente") {
+      ordersQuery = { userId: req.user.id };
+    } else if (req.user.role === "repartidor") {
+      ordersQuery = { repartidorId: req.user.id };
+    } else if (req.user.role === "cajera") {
+      ordersQuery = { channel: "local" };
+    }
+
+    const canReviewLocalOrders = ["gestor", "cajera"].includes(req.user.role);
+    const canReviewRiders = req.user.role === "gestor";
+
+    const [orders, reps, localOrders] = await Promise.all([
+      Order.find(ordersQuery).sort({ id: 1 }).lean(),
+      canReviewRiders
+        ? User.find({ role: "repartidor" }).sort({ name: 1 }).lean()
+        : Promise.resolve([]),
+      canReviewLocalOrders
+        ? Order.find({ channel: "local" }).sort({ id: -1 }).lean()
+        : Promise.resolve([]),
+    ]);
+
+    res.json({
+      user: publicUser(req.user),
+      orders,
+      repartidores: reps.map(publicUser),
+      localOrders,
+    });
+  })
+);
+
 app.post(
   "/api/orders",
   requireAuth,

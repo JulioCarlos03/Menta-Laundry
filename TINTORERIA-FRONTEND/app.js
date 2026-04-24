@@ -40,6 +40,8 @@ let homeLocation = null;
 let riderLocation = null;
 let gestorZoneFilter = "all";
 let clientActivityFilter = "all";
+let backendWarmPromise = null;
+let backendWarmAt = 0;
 const ORDER_WIZARD_STEPS = [
   {
     key: "service",
@@ -1258,6 +1260,32 @@ async function apiGet(path) {
   return apiRequest(path, { method: "GET" });
 }
 
+async function warmBackendConnection({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && backendWarmPromise && now - backendWarmAt < 120000) {
+    return backendWarmPromise;
+  }
+
+  backendWarmAt = now;
+  backendWarmPromise = fetch(`${API_BASE}/health`, { method: "GET" }).catch(() => null);
+  return backendWarmPromise;
+}
+
+function setButtonBusy(button, isBusy, busyLabel = "Procesando...") {
+  if (!button) return;
+
+  if (!button.dataset.idleLabel) {
+    button.dataset.idleLabel = button.textContent.trim();
+  }
+
+  button.disabled = isBusy;
+  button.classList.toggle("btn-busy", isBusy);
+  button.setAttribute("aria-busy", String(isBusy));
+  button.innerHTML = isBusy
+    ? `<span class="btn-spinner" aria-hidden="true"></span><span>${busyLabel}</span>`
+    : button.dataset.idleLabel;
+}
+
 async function login(email, password) {
   const data = await apiPost("/login", { email, password });
   setSession(data.user, data.token);
@@ -1301,13 +1329,92 @@ function logout() {
   location.reload();
 }
 
+function ensureAppLoadingBanner() {
+  const header = qs(".app-header-section");
+  const welcomeBlock = header?.querySelector(".welcome-block");
+  if (!header || !welcomeBlock) return null;
+
+  let banner = qs("#appLoadingBanner");
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "appLoadingBanner";
+    banner.className = "app-loading-banner";
+    banner.hidden = true;
+    welcomeBlock.insertAdjacentElement("afterend", banner);
+  }
+
+  return banner;
+}
+
+function setAppLoadingState(isLoading, message = "Cargando panel...") {
+  const banner = ensureAppLoadingBanner();
+  const appView = qs("#appView");
+  if (!banner || !appView) return;
+
+  if (isLoading) {
+    banner.textContent = message;
+    banner.hidden = false;
+    appView.classList.add("app-view-busy");
+    return;
+  }
+
+  banner.hidden = true;
+  banner.textContent = "";
+  appView.classList.remove("app-view-busy");
+}
+
+function revealAuthenticatedApp(loadingMessage = "") {
+  if (currentUser) {
+    updateUIByRole();
+    updateDashboardHero();
+  }
+
+  hide(qs("#authView"));
+  show(qs("#appView"));
+  syncSessionChrome();
+
+  if (loadingMessage) {
+    setAppLoadingState(true, loadingMessage);
+  }
+}
+
 /* ============================================================
    LOAD DATA
 ============================================================ */
+function applyDashboardPayload(payload = {}) {
+  if (payload.user) {
+    currentUser = payload.user;
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
+  }
+
+  ordersCache = Array.isArray(payload.orders) ? payload.orders : [];
+  repartidoresCache = Array.isArray(payload.repartidores) ? payload.repartidores : [];
+  localOrdersCache = Array.isArray(payload.localOrders) ? payload.localOrders : [];
+}
+
+async function fetchDashboardPayload() {
+  try {
+    const payload = await apiGet("/bootstrap");
+    return {
+      user: payload?.user || null,
+      orders: Array.isArray(payload?.orders) ? payload.orders : [],
+      repartidores: Array.isArray(payload?.repartidores) ? payload.repartidores : [],
+      localOrders: Array.isArray(payload?.localOrders) ? payload.localOrders : [],
+    };
+  } catch (_error) {
+    const [orders, repartidores, localOrders] = await Promise.all([
+      apiGet("/orders"),
+      apiGet("/repartidores"),
+      apiGet("/local-orders").catch(() => []),
+    ]);
+
+    return { orders, repartidores, localOrders };
+  }
+}
+
 async function loadAll() {
-  ordersCache = await apiGet("/orders");
-  repartidoresCache = await apiGet("/repartidores");
-  localOrdersCache = await apiGet("/local-orders").catch(() => []);
+  const payload = await fetchDashboardPayload();
+  applyDashboardPayload(payload);
 
   updateUIByRole();
   updateDashboardHero();
@@ -1331,6 +1438,8 @@ async function loadAll() {
   if (currentUser.role === "cajera") {
     renderCashierHome();
   }
+
+  return payload;
 }
 
 /* ============================================================
@@ -3170,26 +3279,39 @@ function bindAuthModeSwitch(switcher) {
 function attachAuthEvents() {
   qs("#loginForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const submitBtn = qs("#loginForm .btn");
+    let authenticated = false;
     clearInlineMessage("#loginMessage");
+    setButtonBusy(submitBtn, true, "Entrando...");
+    setInlineMessage("#loginMessage", "Conectando con tu panel...", "info");
     try {
       await login(qs("#loginEmail").value, qs("#loginPassword").value);
-      hide(qs("#authView"));
-      show(qs("#appView"));
-      syncSessionChrome();
+      authenticated = true;
+      revealAuthenticatedApp("Cargando tu panel...");
       await loadAll();
+      setAppLoadingState(false);
     } catch (err) {
-      setInlineMessage("#loginMessage", err.message || "Error de inicio de sesion", err.code === "EMAIL_NOT_VERIFIED" ? "warning" : "error");
-      if (err.code === "EMAIL_NOT_VERIFIED") {
+      if (authenticated) {
+        setAppLoadingState(false);
+        showWarning(err.message || "Entraste, pero tardamos en cargar tu panel. Prueba refrescando en unos segundos.");
+      } else {
+        setInlineMessage("#loginMessage", err.message || "Error de inicio de sesion", err.code === "EMAIL_NOT_VERIFIED" ? "warning" : "error");
+      }
+      if (!authenticated && err.code === "EMAIL_NOT_VERIFIED") {
         openAuthActionPanel("resend", {
           email: err.email || qs("#loginEmail")?.value.trim() || "",
         });
       }
+    } finally {
+      setButtonBusy(submitBtn, false);
     }
   });
 
   qs("#registerForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const submitBtn = qs("#registerForm .btn");
     clearInlineMessage("#registerMessage");
+    setButtonBusy(submitBtn, true, "Creando cuenta...");
     try {
       const data = await register(
         qs("#registerName").value,
@@ -3217,6 +3339,8 @@ function attachAuthEvents() {
     } catch (err) {
       const friendlyMessage = getFriendlyAuthMessage(err, "Error de registro");
       setInlineMessage("#registerMessage", friendlyMessage, isEmailDeliveryIssue(err) ? "warning" : "error");
+    } finally {
+      setButtonBusy(submitBtn, false);
     }
   });
 
@@ -6931,6 +7055,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   ensureUIEnhancements();
   ensureNoticeStack();
   ensureConfirmDialog();
+  ensureAppLoadingBanner();
   flushPendingNotices();
   loadSavedRiderLocation();
   loadGestorZoneFilter();
@@ -6954,19 +7079,21 @@ window.addEventListener("DOMContentLoaded", async () => {
   if (savedToken) {
     try {
       await restoreSessionFromToken();
-      hide(qs("#authView"));
-      show(qs("#appView"));
-      syncSessionChrome();
+      revealAuthenticatedApp("Recuperando tu panel...");
       await loadAll();
+      setAppLoadingState(false);
     } catch (_error) {
+      setAppLoadingState(false);
       clearSession();
       show(qs("#authView"));
       hide(qs("#appView"));
       syncSessionChrome();
+      warmBackendConnection();
     }
   } else {
     show(qs("#authView"));
     hide(qs("#appView"));
     syncSessionChrome();
+    warmBackendConnection();
   }
 });
