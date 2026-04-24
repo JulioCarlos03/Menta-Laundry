@@ -2551,20 +2551,47 @@ function renderClientHome() {
     const recentLabel = recentOrder
       ? `${fmtDate(recentOrder.date)} | ${escapeHtml(recentOrder.zone || "--")}`
       : "Aun sin historial";
+    const heroTitle = active
+      ? `${greetingName}, tu pedido ya luce mas claro, sobrio y premium`
+      : `${greetingName}, tu cuenta esta lista para una recepcion mas elegante`;
+    const heroNarrative = active
+      ? "Desde esta portada sigues agenda, ruta, detalle y factura con una lectura mas limpia para revisar tu servicio sin ruido."
+      : "Preparamos un lobby privado para que pidas, confirmes y sigas cada servicio con una presencia mas refinada y confiable.";
+    const heroStatusLabel = active ? "Servicio en curso" : "Agenda abierta";
+    const heroSupportLabel = currentUser?.emailVerified
+      ? "Confirmaciones activas para avisos, cambios y entregas."
+      : "Activa tu correo cuando quieras para recibir confirmaciones y avisos.";
+    const heroRouteHint = gpsReadyCount
+      ? `${gpsReadyCount} servicios con GPS listo`
+      : "GPS opcional para una recepcion mas precisa";
+    const heroSideNote = active
+      ? `Siguiente paso: ${nextServiceLabel}`
+      : `${favoritePack} puede ser un gran punto de partida para tu siguiente servicio.`;
 
     executiveCard.innerHTML = `
       <div class="client-hero-banner home-hero-premium">
         <div class="client-hero-copy">
-          <div class="estimate-kicker">Menta private lounge</div>
-          <div class="client-hero-title">${escapeHtml(greetingName)}, tu inicio ahora se siente mas premium</div>
-          <div class="client-hero-text">
-            Convertimos la portada en un lobby privado para tus servicios: mas elegante, mejor jerarquia visual y lectura clara del pedido importante.
+          <div class="estimate-kicker">Client lounge by ${escapeHtml(BUSINESS_PROFILE.name)}</div>
+          <div class="client-hero-title">${escapeHtml(heroTitle)}</div>
+          <div class="client-hero-text">${escapeHtml(heroNarrative)}</div>
+          <div class="client-hero-pill-row">
+            <span class="client-hero-pill">Recepcion cuidada</span>
+            <span class="client-hero-pill">Seguimiento claro</span>
+            <span class="client-hero-pill">Soporte directo</span>
           </div>
         </div>
         <div class="client-hero-side home-hero-side">
-          <span>${escapeHtml(careTier)}</span>
-          <strong>${active ? "Servicio en curso" : "Agenda abierta"}</strong>
-          <small>${currentUser?.emailVerified ? "Cuenta validada para recibir confirmaciones y avisos" : "Activa tu cuenta desde el correo cuando quieras"}</small>
+          <div class="client-hero-side-head">
+            <span>${escapeHtml(careTier)}</span>
+            <strong>${escapeHtml(heroStatusLabel)}</strong>
+          </div>
+          <small>${escapeHtml(heroSupportLabel)}</small>
+          <div class="client-hero-side-stack">
+            <span class="client-hero-side-pill ${currentUser?.emailVerified ? "is-verified" : ""}">${currentUser?.emailVerified ? "✓ Correo verificado" : "Correo pendiente"}</span>
+            <span class="client-hero-side-pill">${escapeHtml(focusZone)}</span>
+            <span class="client-hero-side-pill">${escapeHtml(heroRouteHint)}</span>
+          </div>
+          <div class="client-hero-side-note">${escapeHtml(heroSideNote)}</div>
         </div>
       </div>
       <div class="home-lounge-strip">
