@@ -42,6 +42,12 @@ let gestorZoneFilter = "all";
 let clientActivityFilter = "all";
 let backendWarmPromise = null;
 let backendWarmAt = 0;
+let dashboardDataVersion = 0;
+let appEntryVisibleAt = 0;
+const screenRenderVersions = new Map();
+const dashboardResourceState = {
+  localOrdersLoaded: false,
+};
 const ORDER_WIZARD_STEPS = [
   {
     key: "service",
@@ -1132,14 +1138,28 @@ function normalizeStaticCopy() {
   });
 }
 
-function showScreen(screenId) {
+function showScreen(screenId, { skipData = false, skipRender = false, forceRender = false } = {}) {
+  const resolvedScreen = resolveRoleScreen(screenId);
   qsa(".screen").forEach((s) => s.classList.remove("screen-active"));
-  const target = qs(`#${screenId}`);
+  const target = qs(`#${resolvedScreen}`);
   if (target) target.classList.add("screen-active");
 
   qsa(".nav-item").forEach((btn) => {
-    btn.classList.toggle("nav-item-active", btn.dataset.screenTarget === screenId);
+    btn.classList.toggle("nav-item-active", btn.dataset.screenTarget === resolvedScreen);
   });
+
+  if (skipRender) return;
+
+  void (async () => {
+    try {
+      if (!skipData) {
+        await ensureScreenDataForCurrentRole(resolvedScreen);
+      }
+      renderScreenForCurrentRole(resolvedScreen, { force: forceRender });
+    } catch (error) {
+      showWarning(error?.message || "No pudimos preparar esta vista en este momento.");
+    }
+  })();
 }
 
 function fmtDate(dateStr) {
@@ -1211,6 +1231,30 @@ function clearSession() {
   currentUser = null;
   localStorage.removeItem(USER_STORAGE_KEY);
   localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+function getActiveScreenId() {
+  return qs(".screen.screen-active")?.id || "screenHome";
+}
+
+function getAllowedScreensForCurrentRole() {
+  switch (currentUser?.role) {
+    case "cliente":
+      return ["screenHome", "screenActivity", "screenPremium", "screenAccount"];
+    case "gestor":
+      return ["screenHome", "screenRiders", "screenLocal", "screenAccount"];
+    case "repartidor":
+    case "cajera":
+      return ["screenHome", "screenAccount"];
+    default:
+      return ["screenHome"];
+  }
+}
+
+function resolveRoleScreen(screenId) {
+  const target = String(screenId || "").trim() || "screenHome";
+  const allowed = getAllowedScreensForCurrentRole();
+  return allowed.includes(target) ? target : "screenHome";
 }
 
 async function apiRequest(path, options = {}) {
@@ -1329,6 +1373,68 @@ function logout() {
   location.reload();
 }
 
+function ensureAppEntryOverlay() {
+  let overlay = qs("#appEntryOverlay");
+  if (overlay) return overlay;
+
+  overlay = document.createElement("div");
+  overlay.id = "appEntryOverlay";
+  overlay.className = "app-entry-overlay";
+  overlay.hidden = true;
+  overlay.innerHTML = `
+    <div class="app-entry-card">
+      <div class="app-entry-mark">
+        <img src="${BUSINESS_ASSETS.logo}" alt="${BUSINESS_PROFILE.name}" />
+      </div>
+      <div class="app-entry-kicker">Acceso privado</div>
+      <div id="appEntryTitle" class="app-entry-title">Preparando tu panel</div>
+      <div id="appEntryCopy" class="app-entry-copy">Estamos abriendo tu experiencia de ${BUSINESS_PROFILE.name}.</div>
+      <div class="app-entry-progress"><span></span></div>
+      <div class="app-entry-tags">
+        <span>Recepcion</span>
+        <span>Seguimiento</span>
+        <span>Cuenta</span>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function showAppEntryOverlay(message = "Preparando tu panel privado...") {
+  const overlay = ensureAppEntryOverlay();
+  const title = overlay.querySelector("#appEntryTitle");
+  const copy = overlay.querySelector("#appEntryCopy");
+  const firstName = String(currentUser?.name || BUSINESS_PROFILE.name).trim().split(/\s+/)[0] || BUSINESS_PROFILE.name;
+  const roleLabel = formatRoleLabel(currentUser?.role || "cliente");
+
+  if (title) title.textContent = `Bienvenido, ${firstName}`;
+  if (copy) copy.textContent = `${message} Vista ${roleLabel} con una transicion mas limpia y premium.`;
+
+  appEntryVisibleAt = Date.now();
+  overlay.hidden = false;
+  requestAnimationFrame(() => overlay.classList.add("is-visible"));
+}
+
+function hideAppEntryOverlay() {
+  const overlay = qs("#appEntryOverlay");
+  if (!overlay) return Promise.resolve();
+
+  const elapsed = Date.now() - appEntryVisibleAt;
+  const waitTime = Math.max(0, 520 - elapsed);
+
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      overlay.classList.remove("is-visible");
+      setTimeout(() => {
+        overlay.hidden = true;
+        resolve();
+      }, 240);
+    }, waitTime);
+  });
+}
+
 function ensureAppLoadingBanner() {
   const header = qs(".app-header-section");
   const welcomeBlock = header?.querySelector(".welcome-block");
@@ -1363,6 +1469,72 @@ function setAppLoadingState(isLoading, message = "Cargando panel...") {
   appView.classList.remove("app-view-busy");
 }
 
+function getScreenRendererMap() {
+  switch (currentUser?.role) {
+    case "cliente":
+      return {
+        screenHome: renderClientHome,
+        screenActivity: renderClientActivity,
+        screenAccount: renderClientAccount,
+      };
+    case "gestor":
+      return {
+        screenHome: renderGestorHome,
+        screenRiders: renderGestorRidersActivity,
+        screenLocal: renderGestorLocal,
+      };
+    case "repartidor":
+      return {
+        screenHome: renderRepartidorHome,
+      };
+    case "cajera":
+      return {
+        screenHome: renderCashierHome,
+      };
+    default:
+      return {};
+  }
+}
+
+function markDashboardDataDirty() {
+  dashboardDataVersion += 1;
+}
+
+function renderScreenForCurrentRole(screenId, { force = false } = {}) {
+  const resolvedScreen = resolveRoleScreen(screenId);
+  const renderers = getScreenRendererMap();
+  const renderer = renderers[resolvedScreen];
+  if (!renderer || !currentUser) return false;
+
+  const key = `${currentUser.role}:${resolvedScreen}`;
+  if (!force && screenRenderVersions.get(key) === dashboardDataVersion) {
+    return false;
+  }
+
+  renderer();
+  screenRenderVersions.set(key, dashboardDataVersion);
+  return true;
+}
+
+async function ensureScreenDataForCurrentRole(screenId) {
+  const resolvedScreen = resolveRoleScreen(screenId);
+  if (currentUser?.role === "gestor" && resolvedScreen === "screenLocal" && !dashboardResourceState.localOrdersLoaded) {
+    const tbody = qs("#localOrdersBody");
+    if (tbody) {
+      tbody.innerHTML = tableEmptyRow(8, "Cargando pedidos del local...");
+    }
+
+    setAppLoadingState(true, "Preparando pedidos del local...");
+    try {
+      localOrdersCache = await apiGet("/local-orders").catch(() => []);
+      dashboardResourceState.localOrdersLoaded = true;
+      markDashboardDataDirty();
+    } finally {
+      setAppLoadingState(false);
+    }
+  }
+}
+
 function revealAuthenticatedApp(loadingMessage = "") {
   if (currentUser) {
     updateUIByRole();
@@ -1374,70 +1546,87 @@ function revealAuthenticatedApp(loadingMessage = "") {
   syncSessionChrome();
 
   if (loadingMessage) {
-    setAppLoadingState(true, loadingMessage);
+    showAppEntryOverlay(loadingMessage);
   }
 }
 
 /* ============================================================
    LOAD DATA
 ============================================================ */
-function applyDashboardPayload(payload = {}) {
+function applyDashboardPayload(payload = {}, { merge = false } = {}) {
   if (payload.user) {
     currentUser = payload.user;
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
   }
 
-  ordersCache = Array.isArray(payload.orders) ? payload.orders : [];
-  repartidoresCache = Array.isArray(payload.repartidores) ? payload.repartidores : [];
-  localOrdersCache = Array.isArray(payload.localOrders) ? payload.localOrders : [];
+  const hasOrders = Array.isArray(payload.orders);
+  const hasRiders = Array.isArray(payload.repartidores);
+  const hasLocalOrders = Array.isArray(payload.localOrders);
+
+  if (hasOrders || !merge) {
+    ordersCache = hasOrders ? payload.orders : [];
+  }
+
+  if (hasRiders || !merge) {
+    repartidoresCache = hasRiders ? payload.repartidores : [];
+  }
+
+  if (hasLocalOrders || !merge) {
+    localOrdersCache = hasLocalOrders ? payload.localOrders : [];
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "localOrdersLoaded")) {
+    dashboardResourceState.localOrdersLoaded = Boolean(payload.localOrdersLoaded);
+  } else if (hasLocalOrders) {
+    dashboardResourceState.localOrdersLoaded = true;
+  } else if (!merge) {
+    dashboardResourceState.localOrdersLoaded = false;
+  }
+
+  markDashboardDataDirty();
 }
 
-async function fetchDashboardPayload() {
+async function fetchDashboardPayload(screenId = getActiveScreenId()) {
+  const resolvedScreen = resolveRoleScreen(screenId);
+  const bootstrapPath = `/bootstrap?screen=${encodeURIComponent(resolvedScreen)}`;
   try {
-    const payload = await apiGet("/bootstrap");
+    const payload = await apiGet(bootstrapPath);
     return {
       user: payload?.user || null,
       orders: Array.isArray(payload?.orders) ? payload.orders : [],
       repartidores: Array.isArray(payload?.repartidores) ? payload.repartidores : [],
       localOrders: Array.isArray(payload?.localOrders) ? payload.localOrders : [],
+      localOrdersLoaded: Boolean(payload?.localOrdersLoaded),
     };
   } catch (_error) {
+    const shouldFetchRiders = currentUser?.role === "gestor";
+    const shouldFetchLocalOrders =
+      currentUser?.role === "cajera" ||
+      (currentUser?.role === "gestor" && resolvedScreen === "screenLocal");
+
     const [orders, repartidores, localOrders] = await Promise.all([
       apiGet("/orders"),
-      apiGet("/repartidores"),
-      apiGet("/local-orders").catch(() => []),
+      shouldFetchRiders ? apiGet("/repartidores") : Promise.resolve([]),
+      shouldFetchLocalOrders ? apiGet("/local-orders").catch(() => []) : Promise.resolve([]),
     ]);
 
-    return { orders, repartidores, localOrders };
+    return {
+      orders,
+      repartidores,
+      localOrders,
+      localOrdersLoaded: shouldFetchLocalOrders,
+    };
   }
 }
 
-async function loadAll() {
-  const payload = await fetchDashboardPayload();
-  applyDashboardPayload(payload);
+async function loadAll({ screenId = getActiveScreenId(), merge = false } = {}) {
+  const resolvedScreen = resolveRoleScreen(screenId);
+  const payload = await fetchDashboardPayload(resolvedScreen);
+  applyDashboardPayload(payload, { merge });
 
   updateUIByRole();
   updateDashboardHero();
-
-  if (currentUser.role === "cliente") {
-    renderClientHome();
-    renderClientActivity();
-    renderClientAccount();
-  }
-
-  if (currentUser.role === "gestor") {
-    renderGestorHome();
-    renderGestorRidersActivity();
-    renderGestorLocal();
-  }
-
-  if (currentUser.role === "repartidor") {
-    renderRepartidorHome();
-  }
-
-  if (currentUser.role === "cajera") {
-    renderCashierHome();
-  }
+  renderScreenForCurrentRole(resolvedScreen, { force: true });
 
   return payload;
 }
@@ -1446,6 +1635,7 @@ async function loadAll() {
    UI BY ROLE
 ============================================================ */
 function updateUIByRole() {
+  const preferredScreen = resolveRoleScreen(getActiveScreenId());
   qs("#welcomeTitle").textContent = `Hola, ${currentUser.name}`;
   qs("#roleLabel").textContent = formatRoleLabel(currentUser.role);
 
@@ -1481,7 +1671,7 @@ function updateUIByRole() {
   // Cliente
   if (currentUser.role === "cliente") {
     qs("#welcomeSubtitle").textContent = "Ordena tu servicio y sigue tu pedido.";
-    showScreen("screenHome");
+    showScreen(preferredScreen, { skipData: true, skipRender: true });
     return;
   }
 
@@ -1492,7 +1682,7 @@ function updateUIByRole() {
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(gestorPanel);
     qs("#welcomeSubtitle").textContent = "Administra pedidos, asignaciones, local y repartidores.";
-    showScreen("screenHome");
+    showScreen(preferredScreen, { skipData: true, skipRender: true });
     return;
   }
 
@@ -1503,7 +1693,7 @@ function updateUIByRole() {
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(repPanel);
     qs("#welcomeSubtitle").textContent = "Gestiona tus pedidos asignados y actualiza estados.";
-    showScreen("screenHome");
+    showScreen(preferredScreen, { skipData: true, skipRender: true });
     return;
   }
 
@@ -1514,7 +1704,7 @@ function updateUIByRole() {
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(cashierPanel);
     qs("#welcomeSubtitle").textContent = "Caja: registra pedidos del local con libras.";
-    showScreen("screenHome");
+    showScreen(preferredScreen, { skipData: true, skipRender: true });
     return;
   }
 }
@@ -3289,10 +3479,10 @@ function attachAuthEvents() {
       authenticated = true;
       revealAuthenticatedApp("Cargando tu panel...");
       await loadAll();
-      setAppLoadingState(false);
+      await hideAppEntryOverlay();
     } catch (err) {
       if (authenticated) {
-        setAppLoadingState(false);
+        await hideAppEntryOverlay();
         showWarning(err.message || "Entraste, pero tardamos en cargar tu panel. Prueba refrescando en unos segundos.");
       } else {
         setInlineMessage("#loginMessage", err.message || "Error de inicio de sesion", err.code === "EMAIL_NOT_VERIFIED" ? "warning" : "error");
@@ -7056,6 +7246,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   ensureNoticeStack();
   ensureConfirmDialog();
   ensureAppLoadingBanner();
+  ensureAppEntryOverlay();
   flushPendingNotices();
   loadSavedRiderLocation();
   loadGestorZoneFilter();
@@ -7081,9 +7272,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       await restoreSessionFromToken();
       revealAuthenticatedApp("Recuperando tu panel...");
       await loadAll();
-      setAppLoadingState(false);
+      await hideAppEntryOverlay();
     } catch (_error) {
-      setAppLoadingState(false);
+      await hideAppEntryOverlay();
       clearSession();
       show(qs("#authView"));
       hide(qs("#appView"));

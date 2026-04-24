@@ -787,6 +787,7 @@ app.get(
   "/api/bootstrap",
   requireAuth,
   asyncHandler(async (req, res) => {
+    const requestedScreen = String(req.query.screen || "screenHome").trim() || "screenHome";
     let ordersQuery = {};
 
     if (req.user.role === "cliente") {
@@ -799,13 +800,14 @@ app.get(
 
     const canReviewLocalOrders = ["gestor", "cajera"].includes(req.user.role);
     const canReviewRiders = req.user.role === "gestor";
+    const includeLocalOrders = req.user.role === "cajera" || (req.user.role === "gestor" && requestedScreen === "screenLocal");
 
     const [orders, reps, localOrders] = await Promise.all([
       Order.find(ordersQuery).sort({ id: 1 }).lean(),
       canReviewRiders
         ? User.find({ role: "repartidor" }).sort({ name: 1 }).lean()
         : Promise.resolve([]),
-      canReviewLocalOrders
+      canReviewLocalOrders && includeLocalOrders
         ? Order.find({ channel: "local" }).sort({ id: -1 }).lean()
         : Promise.resolve([]),
     ]);
@@ -815,6 +817,7 @@ app.get(
       orders,
       repartidores: reps.map(publicUser),
       localOrders,
+      localOrdersLoaded: includeLocalOrders,
     });
   })
 );
