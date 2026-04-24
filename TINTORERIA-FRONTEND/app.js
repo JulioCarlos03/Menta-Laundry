@@ -919,9 +919,8 @@ function ensureWelcomeEnhancements() {
   const welcomeBlock = qs(".welcome-block");
   const welcomeText = welcomeBlock?.querySelector(".welcome-text");
   const roleBadge = welcomeBlock?.querySelector(".role-badge");
-  if (!welcomeBlock || !welcomeText || !roleBadge || welcomeBlock.querySelector(".welcome-main")) return;
-
-  const roleLabel = qs("#roleLabel");
+  if (!welcomeBlock || !welcomeText || welcomeBlock.querySelector(".welcome-main")) return;
+  if (roleBadge) roleBadge.hidden = true;
 
   const main = document.createElement("div");
   main.className = "welcome-main";
@@ -939,10 +938,6 @@ function ensureWelcomeEnhancements() {
 
   const side = document.createElement("div");
   side.className = "welcome-side";
-
-  roleBadge.textContent = "Rol activo ";
-  if (roleLabel) roleBadge.appendChild(roleLabel);
-  side.appendChild(roleBadge);
 
   const stats = document.createElement("div");
   stats.className = "hero-stats";
@@ -1637,7 +1632,8 @@ async function loadAll({ screenId = getActiveScreenId(), merge = false } = {}) {
 function updateUIByRole() {
   const preferredScreen = resolveRoleScreen(getActiveScreenId());
   qs("#welcomeTitle").textContent = `Hola, ${currentUser.name}`;
-  qs("#roleLabel").textContent = formatRoleLabel(currentUser.role);
+  const roleLabel = qs("#roleLabel");
+  if (roleLabel) roleLabel.textContent = formatRoleLabel(currentUser.role);
 
   // nav
   const navActivity = qs("[data-screen-target='screenActivity']");
@@ -2261,6 +2257,30 @@ function getClientCareTier(totalOrders) {
   return "Cuenta nueva";
 }
 
+function getClientVerificationBadgeMarkup() {
+  if (currentUser?.emailVerified) {
+    return `
+      <div class="estimate-badge is-verified" aria-label="Cuenta verificada">
+        <span class="estimate-badge-icon" aria-hidden="true">✓</span>
+        <span class="estimate-badge-copy">
+          <strong>Cuenta verificada</strong>
+          <small>Correo confirmado</small>
+        </span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="estimate-badge is-neutral" aria-label="Cuenta lista">
+      <span class="estimate-badge-icon" aria-hidden="true">•</span>
+      <span class="estimate-badge-copy">
+        <strong>Cuenta lista</strong>
+        <small>Correo pendiente</small>
+      </span>
+    </div>
+  `;
+}
+
 function buildClientOrderStats(clientOrders) {
   const my = sortByNewestId(clientOrders);
   const activeOrders = my.filter((order) => !["entregado", "cancelado"].includes(String(order.status || "").toLowerCase()));
@@ -2474,7 +2494,7 @@ function renderClientHome() {
           <div class="estimate-kicker">Concierge ${escapeHtml(BUSINESS_PROFILE.name)}</div>
           <div class="estimate-title">${escapeHtml(careTier)} con una recepcion mas elegante y mejor organizada</div>
         </div>
-        <div class="estimate-badge">${currentUser?.emailVerified ? "Cuenta verificada" : "Cuenta activa"}</div>
+        ${getClientVerificationBadgeMarkup()}
       </div>
       <div class="home-concierge-grid">
         <div class="home-concierge-card">
@@ -2682,7 +2702,7 @@ function renderClientActivity() {
           <div class="card-title">Seguimiento premium para ${escapeHtml(greetingName)}</div>
           <div class="card-secondary">Lee tus pedidos como una bitacora clara: estado, ruta, detalle, factura y mapa desde una misma vista.</div>
         </div>
-        <div class="estimate-badge">${currentUser?.emailVerified ? "Cuenta verificada" : careTier}</div>
+        ${getClientVerificationBadgeMarkup()}
       </div>
       <div class="executive-grid client-executive-grid">
         <div class="executive-metric">
@@ -5405,14 +5425,13 @@ function ensureWelcomeEnhancements() {
   const welcomeBlock = qs(".welcome-block");
   const welcomeText = welcomeBlock?.querySelector(".welcome-text");
   const roleBadge = welcomeBlock?.querySelector(".role-badge");
-  if (!welcomeBlock || !welcomeText || !roleBadge) return;
+  if (!welcomeBlock || !welcomeText) return;
+  if (roleBadge) roleBadge.hidden = true;
 
   let main = welcomeBlock.querySelector(".welcome-main");
   let side = welcomeBlock.querySelector(".welcome-side");
 
   if (!main || !side) {
-    const roleLabel = qs("#roleLabel");
-
     main = document.createElement("div");
     main.className = "welcome-main";
     main.innerHTML = `<div class="card-eyebrow">Centro de control</div>`;
@@ -5424,10 +5443,6 @@ function ensureWelcomeEnhancements() {
 
     side = document.createElement("div");
     side.className = "welcome-side";
-
-    roleBadge.textContent = "Rol activo ";
-    if (roleLabel) roleBadge.appendChild(roleLabel);
-    side.appendChild(roleBadge);
 
     const stats = document.createElement("div");
     stats.className = "hero-stats";
