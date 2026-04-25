@@ -14,10 +14,10 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 /* ============================================================
-   DATOS EN MEMORIA (DEMO)
+   DATOS EN MEMORIA
 ============================================================ */
 
-// Usuarios demo: gestor, repartidores, cajera
+// Usuarios iniciales: gestor, repartidores, cajera
 let users = [
   {
     id: 1,
@@ -54,27 +54,27 @@ let users = [
     role: "cajera",
   },
 
-  // Cliente demo
+  // Cliente inicial
   {
     id: 10,
-    name: "Cliente Demo",
+    name: "Cliente Menta",
     email: "cliente@demo.com",
     password: "cliente123",
     role: "cliente",
   },
 ];
 
-// Pedidos demo
+// Pedidos iniciales
 let orders = [
   // ejemplo domicilio
   {
     id: 1,
     userId: 10,
-    userName: "Cliente Demo",
+    userName: "Cliente Menta",
     userEmail: "cliente@demo.com",
     phone: "829-448-7876",
     zone: "Distrito Nacional",
-    address: "Av. Demo #123",
+    address: "Av. 27 de Febrero 135",
     serviceType: "Recogida a domicilio",
     date: "2026-01-10",
     time: "10:30",
@@ -86,7 +86,7 @@ let orders = [
       lat: 18.48606,
       lng: -69.93121,
       accuracy: 24,
-      source: "demo",
+      source: "gps_seed",
       inferredZone: "Distrito Nacional",
       capturedAt: new Date().toISOString(),
     },
@@ -105,21 +105,21 @@ let orders = [
 ];
 
 /* ============================================================
-   INFO NEGOCIO (FACTURA DEMO)
+   INFO NEGOCIO
 ============================================================ */
 const BUSINESS_INFO = {
-  name: "Tintorería Express",
-  rnc: "X",
-  address: "Dirección X",
+  name: "Menta Laundry",
+  rnc: "1-32-45896-2",
+  address: "Av. 27 de Febrero 135, Distrito Nacional",
   phone: "829-448-7876",
-  email: "facturacion@tintoreria.com",
+  email: "admin@mentalaundry.com",
   itbisRate: 0.18,
   banks: [
     { name: "BHD", account: "33008190011" },
     { name: "Popular", account: "831576806" },
   ],
   footerMessage:
-    "¡Gracias por confiar en nosotros! Tu ropa queda en manos expertas 🧺✨",
+    "Gracias por confiar en Menta Laundry. Frescura, cuidado y seguimiento en cada prenda.",
 };
 
 /* ============================================================
@@ -237,7 +237,7 @@ app.get("/api/repartidores", (req, res) => {
    PEDIDOS (DOMICILIO)
 ============================================================ */
 
-// Listar pedidos (todos - demo)
+// Listar pedidos
 app.get("/api/orders", (req, res) => {
   res.json(orders);
 });
@@ -446,7 +446,7 @@ app.get("/api/local-orders", (req, res) => {
 });
 
 /* ============================================================
-   FACTURA INFO (DEMO)
+   FACTURA INFO
 ============================================================ */
 app.get("/api/business-info", (req, res) => {
   res.json(BUSINESS_INFO);

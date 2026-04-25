@@ -1,7 +1,7 @@
 {
   "name": "tintoreria-backend",
   "version": "1.0.0",
-  "description": "Backend demo tintoreria con roles (cliente, gestor, repartidor)",
+  "description": "Backend operativo para Menta Laundry con roles de cliente, gestor, repartidor y caja",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

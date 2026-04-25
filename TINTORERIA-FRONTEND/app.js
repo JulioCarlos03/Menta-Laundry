@@ -1058,7 +1058,7 @@ function normalizeStaticCopy() {
   const quickTitle = qs("#quickOrderCard .card-title");
   const quickSubtitle = qs("#quickOrderCard .card-secondary");
   if (quickTitle) quickTitle.textContent = "Ordenar recogida a domicilio";
-  if (quickSubtitle) quickSubtitle.textContent = "Agenda de 8:00 AM a 10:00 PM. Capacidad demo de 20 pedidos por dia.";
+  if (quickSubtitle) quickSubtitle.textContent = "Agenda de 8:00 AM a 10:00 PM con seguimiento privado.";
 
   const quickLabels = qs("#quickOrderForm")?.querySelectorAll("label") || [];
   const quickTexts = ["Zona", "Direccion", "Fecha", "Hora", "Tipo de servicio", "Paquete principal", "Extras", "Notas"];
@@ -1093,7 +1093,7 @@ function normalizeStaticCopy() {
   const premiumNote = qs("#screenPremium .premium-note");
   if (premiumTitle) premiumTitle.textContent = "Club Signature";
   if (premiumText) premiumText.textContent = "Proximamente: membresia mensual o anual con beneficios exclusivos, prioridad y recompensas.";
-  if (premiumNote) premiumNote.textContent = "Modo demo sin cobro real.";
+  if (premiumNote) premiumNote.textContent = "Beneficios sujetos a disponibilidad del servicio.";
   qsa("#screenPremium .premium-list li").forEach((item, index) => {
     const texts = [
       "Beneficios privados por pedidos",
@@ -1119,7 +1119,7 @@ function normalizeStaticCopy() {
   const accountTitle = qs("#screenAccount .card-title");
   const accountSubtitle = qs("#screenAccount .card-secondary");
   if (accountTitle) accountTitle.textContent = "Cuenta";
-  if (accountSubtitle) accountSubtitle.textContent = "Administra tu informacion en este entorno demo.";
+  if (accountSubtitle) accountSubtitle.textContent = "Administra tu informacion principal y canales de contacto.";
   const profileLabels = qs("#profileForm")?.querySelectorAll("label") || [];
   const profileTexts = ["Nombre", "Correo", "Rol"];
   profileLabels.forEach((label, index) => {
@@ -1127,9 +1127,9 @@ function normalizeStaticCopy() {
   });
   const helpItems = qsa(".help-list li");
   const helpTexts = [
-    "Soporte: soporte@tintoreria.com",
+    `Soporte: ${BUSINESS_PROFILE.email}`,
     "Horario: 8:00 AM - 10:00 PM",
-    "Capacidad demo: 20 pedidos por dia",
+    "Agenda: recogida y entrega coordinada por zona",
   ];
   helpItems.forEach((item, index) => {
     if (helpTexts[index]) item.textContent = helpTexts[index];
@@ -3460,7 +3460,7 @@ function attachAppEvents() {
 
   qs("#profileForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    alert("Guardado (modo demo).");
+    alert("Perfil revisado. Para cambios sensibles, contacta soporte.");
   });
 }
 
@@ -3609,7 +3609,7 @@ function attachAppEvents() {
   qs("#invoicePrintBtn")?.addEventListener("click", printInvoice);
   qs("#profileForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    alert("Guardado en modo demo.");
+    alert("Perfil revisado. Para cambios sensibles, contacta soporte.");
   });
 }
 
@@ -7285,7 +7285,7 @@ function renderRepartidorHome() {
               <div>
                 <div class="detail-label">Telefono</div>
                 <div class="detail-value">${escapeHtml(contactPhone)}</div>
-                ${isFallbackContact ? `<div class="rider-fallback-note">Numero central configurado para demo.</div>` : ""}
+                ${isFallbackContact ? `<div class="rider-fallback-note">Numero central configurado por la empresa.</div>` : ""}
               </div>
               <div>
                 <div class="detail-label">Libras</div>
@@ -7602,7 +7602,7 @@ function attachAppEvents() {
   });
   qs("#profileForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    showInfo("Guardado en modo demo.");
+    showInfo("Perfil revisado. Para cambios sensibles, contacta soporte.");
   });
 }
 

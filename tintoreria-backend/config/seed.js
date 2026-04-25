@@ -33,7 +33,7 @@ const DEMO_USERS = [
   },
   {
     id: 10,
-    name: "Cliente Demo",
+    name: "Cliente Menta",
     email: "cliente@demo.com",
     password: "cliente123",
     role: "cliente",
@@ -53,11 +53,11 @@ function buildDemoOrder() {
   return {
     id: 1,
     userId: 10,
-    userName: "Cliente Demo",
+    userName: "Cliente Menta",
     userEmail: "cliente@demo.com",
     phone: "829-448-7876",
     zone: "Distrito Nacional",
-    address: "Av. Demo #123",
+    address: "Av. 27 de Febrero 135",
     serviceType: "Recogida a domicilio",
     date,
     time,
@@ -69,7 +69,7 @@ function buildDemoOrder() {
       lat: 18.48606,
       lng: -69.93121,
       accuracy: 24,
-      source: "demo",
+      source: "gps_seed",
       inferredZone: "Distrito Nacional",
       capturedAt: now,
     },
@@ -102,8 +102,13 @@ async function seedDemoData({ User, Order }) {
       }))
     );
     await User.insertMany(users);
-    console.log("Usuarios demo sembrados.");
+    console.log("Usuarios iniciales sembrados.");
   }
+
+  await User.updateMany(
+    { name: "Cliente Demo" },
+    { $set: { name: "Cliente Menta" } }
+  );
 
   await User.updateMany(
     { emailVerified: { $exists: false } },
@@ -122,8 +127,17 @@ async function seedDemoData({ User, Order }) {
   const ordersCount = await Order.countDocuments();
   if (ordersCount === 0) {
     await Order.create(buildDemoOrder());
-    console.log("Pedido demo sembrado.");
+    console.log("Pedido inicial sembrado.");
   }
+
+  await Order.updateMany(
+    { userName: "Cliente Demo" },
+    { $set: { userName: "Cliente Menta" } }
+  );
+  await Order.updateMany(
+    { address: "Av. Demo #123" },
+    { $set: { address: "Av. 27 de Febrero 135" } }
+  );
 }
 
 module.exports = seedDemoData;

@@ -17,7 +17,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/tintoreria_express";
-const JWT_SECRET = process.env.JWT_SECRET || "jwt_demo_secret_change_me";
+const JWT_SECRET = process.env.JWT_SECRET || "jwt_secret_change_me";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 const DEFAULT_APP_BASE_URL = "http://127.0.0.1:5500/TINTORERIA-FRONTEND/";
 const APP_BASE_URL = (() => {
@@ -38,7 +38,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:3000",
   "https://mentalaundry.com",
   "https://www.mentalaundry.com",
-  "https://demo.mentalaundry.com",
+  "https://menta-laundry.vercel.app",
 ];
 const DEFAULT_ALLOWED_ORIGIN_SUFFIXES = [
   ".netlify.app",
@@ -94,18 +94,19 @@ app.use(
 app.use(express.json());
 
 const BUSINESS_INFO = {
-  name: "Tintoreria Express",
-  rnc: "X",
-  address: "Direccion X",
+  name: "Menta Laundry",
+  legalName: "Menta Laundry SRL",
+  rnc: "1-32-45896-2",
+  address: "Av. 27 de Febrero 135, Distrito Nacional",
   phone: "829-448-7876",
-  email: "facturacion@tintoreria.com",
+  email: "admin@mentalaundry.com",
   itbisRate: 0.18,
   banks: [
     { name: "BHD", account: "33008190011" },
     { name: "Popular", account: "831576806" },
   ],
   footerMessage:
-    "Gracias por confiar en nosotros. Tu ropa queda en manos expertas.",
+    "Gracias por confiar en Menta Laundry. Frescura, cuidado y seguimiento en cada prenda.",
 };
 
 const ALLOWED_ZONES = ["Distrito Nacional", "Sur", "Este", "Oeste"];
@@ -176,23 +177,23 @@ function buildAuthEmailShell({ eyebrow, title, intro, actionUrl, actionLabel, no
   const safeActionUrl = String(actionUrl || "").trim();
   return {
     html: `
-      <div style="font-family:Segoe UI,Arial,sans-serif;background:#f8f4ee;padding:32px;color:#1f2937;">
-        <div style="max-width:620px;margin:0 auto;background:#ffffff;border-radius:24px;padding:32px;border:1px solid #eadfce;box-shadow:0 18px 50px rgba(31,41,55,.10);">
-          <div style="display:inline-block;padding:8px 12px;border-radius:999px;background:#f4ead8;color:#8a6b47;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">
+      <div style="font-family:Segoe UI,Arial,sans-serif;background:#eef8f5;padding:32px;color:#173442;">
+        <div style="max-width:620px;margin:0 auto;background:#ffffff;border-radius:26px;padding:32px;border:1px solid #cfe9df;box-shadow:0 18px 50px rgba(23,52,66,.12);">
+          <div style="display:inline-block;padding:8px 12px;border-radius:999px;background:#e4f5ee;color:#26765d;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;">
             ${eyebrow}
           </div>
-          <h1 style="margin:18px 0 10px;font-size:30px;line-height:1.1;color:#2f2418;">${title}</h1>
-          <p style="margin:0 0 22px;font-size:16px;line-height:1.7;color:#5e5244;">${intro}</p>
-          <a href="${safeActionUrl}" style="display:inline-block;padding:14px 20px;border-radius:16px;background:linear-gradient(135deg,#d8b26a,#ba8a3f);color:#1f2937;text-decoration:none;font-weight:800;">
+          <h1 style="margin:18px 0 10px;font-size:30px;line-height:1.1;color:#173442;">${title}</h1>
+          <p style="margin:0 0 22px;font-size:16px;line-height:1.7;color:#55707b;">${intro}</p>
+          <a href="${safeActionUrl}" style="display:inline-block;padding:14px 20px;border-radius:16px;background:linear-gradient(135deg,#82cdb0,#2f82b2);color:#ffffff;text-decoration:none;font-weight:900;">
             ${actionLabel}
           </a>
-          <p style="margin:22px 0 10px;font-size:14px;line-height:1.7;color:#7c6f61;">
+          <p style="margin:22px 0 10px;font-size:14px;line-height:1.7;color:#6b838c;">
             Si el boton no abre, copia y pega este enlace en tu navegador:
           </p>
-          <p style="margin:0;font-size:13px;line-height:1.6;word-break:break-all;color:#7c6f61;">
+          <p style="margin:0;font-size:13px;line-height:1.6;word-break:break-all;color:#6b838c;">
             ${safeActionUrl}
           </p>
-          <p style="margin:22px 0 0;font-size:13px;line-height:1.6;color:#9b8c7a;">
+          <p style="margin:22px 0 0;font-size:13px;line-height:1.6;color:#7d949c;">
             ${note}
           </p>
         </div>
@@ -214,7 +215,7 @@ function buildVerificationEmailContent(user, verificationUrl) {
   return buildAuthEmailShell({
     eyebrow: "Verificacion",
     title: "Confirma tu correo para activar tu cuenta",
-    intro: `Hola ${user.name}, ya casi estas dentro de Tintoreria Express. Verifica tu correo para activar el acceso y gestionar tus pedidos con seguridad.`,
+    intro: `Hola ${user.name}, ya casi estas dentro de ${BUSINESS_INFO.name}. Verifica tu correo para activar el acceso y gestionar tus pedidos con seguridad.`,
     actionUrl: verificationUrl,
     actionLabel: "Verificar mi correo",
     note: "Si no creaste esta cuenta, puedes ignorar este mensaje.",
@@ -296,7 +297,7 @@ async function issueEmailVerification(user) {
   const emailContent = buildVerificationEmailContent(user, verificationUrl);
   const delivery = await sendEmail({
     to: user.email,
-    subject: "Verifica tu cuenta de Tintoreria Express",
+    subject: `Verifica tu cuenta de ${BUSINESS_INFO.name}`,
     html: emailContent.html,
     text: emailContent.text,
     debugActionUrl: verificationUrl,
@@ -322,7 +323,7 @@ async function issuePasswordReset(user) {
   const emailContent = buildPasswordResetEmailContent(user, resetUrl);
   const delivery = await sendEmail({
     to: user.email,
-    subject: "Restablece tu contrasena de Tintoreria Express",
+    subject: `Restablece tu contrasena de ${BUSINESS_INFO.name}`,
     html: emailContent.html,
     text: emailContent.text,
     debugActionUrl: resetUrl,

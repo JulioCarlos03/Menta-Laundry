@@ -33,7 +33,7 @@ async function sendEmail({ to, subject, html, text, debugActionUrl = null }) {
   if (mode === "smtp") {
     const transporter = getTransporter();
     const info = await transporter.sendMail({
-      from: readEnv("EMAIL_FROM", "Tintoreria Express <no-reply@tintoreria.local>"),
+      from: readEnv("EMAIL_FROM", "Menta Laundry <admin@mentalaundry.com>"),
       replyTo: readEnv("EMAIL_REPLY_TO") || undefined,
       to,
       subject,
