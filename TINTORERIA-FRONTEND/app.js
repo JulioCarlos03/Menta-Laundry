@@ -59,7 +59,7 @@ const ORDER_WIZARD_STEPS = [
     key: "location",
     kicker: "Paso 2",
     label: "Ubicacion y horario",
-    copy: "Define la direccion, comparte el GPS si quieres y deja la agenda lista para la recogida.",
+    copy: "Define la direccion, confirma el GPS obligatorio y deja la agenda lista para la recogida.",
   },
   {
     key: "review",
@@ -3834,10 +3834,18 @@ function ensureClientOrderEnhancements() {
       <div class="geo-panel">
         <div class="geo-panel-top">
           <div>
-            <div id="homeGeoStatus" class="geo-status">Sin ubicacion capturada</div>
-            <div id="homeGeoMeta" class="geo-meta">Comparte tu GPS para fijar el punto exacto de recogida y sugerir la zona mas cercana.</div>
+            <div id="homeGeoStatus" class="geo-status">GPS requerido para recoger</div>
+            <div id="homeGeoMeta" class="geo-meta">Comparte tu ubicacion para fijar el punto exacto de recogida y sugerir la zona mas cercana.</div>
           </div>
-          <span id="homeGeoZone" class="estimate-tag estimate-tag-muted">Zona manual</span>
+          <span id="homeGeoZone" class="estimate-tag estimate-tag-muted">GPS pendiente</span>
+        </div>
+        <div id="homePickupMap" class="pickup-map pickup-map-empty" role="button" tabindex="0" aria-label="Mini mapa del punto de recogida">
+          <div class="pickup-map-grid" aria-hidden="true"></div>
+          <div class="pickup-map-route pickup-map-route-a" aria-hidden="true"></div>
+          <div class="pickup-map-route pickup-map-route-b" aria-hidden="true"></div>
+          <div id="homePickupAccuracy" class="pickup-map-accuracy" aria-hidden="true"></div>
+          <div id="homePickupPin" class="pickup-map-pin" aria-hidden="true"></div>
+          <div id="homePickupMapLabel" class="pickup-map-label">Activa el GPS para ver el punto de recogida</div>
         </div>
         <div id="homeGeoCoords" class="geo-coords">Aun no hay coordenadas registradas en este pedido.</div>
         <div class="geo-action-row">
@@ -3846,7 +3854,7 @@ function ensureClientOrderEnhancements() {
           <a id="homeGeoOpenLink" class="btn btn-small btn-outline btn-disabled" href="#" target="_blank" rel="noreferrer" aria-disabled="true">Ver punto</a>
         </div>
       </div>
-      <div class="field-help">La direccion escrita sigue siendo obligatoria como referencia, pero el GPS ayuda al repartidor a llegar con mas precision.</div>
+      <div class="field-help">La direccion escrita sigue siendo obligatoria como referencia, pero el pedido no se envia sin GPS confirmado.</div>
     `;
     const phoneField = qs("#homeContactPhone")?.closest(".field-group");
     phoneField?.insertAdjacentElement("afterend", geoField);
@@ -3955,6 +3963,12 @@ function ensureClientOrderEnhancements() {
     input.addEventListener("change", updateOrderEstimatePreview);
   });
 
+  const zoneInput = qs("#homeZone");
+  if (zoneInput && zoneInput.dataset.geoMapBound !== "1") {
+    zoneInput.dataset.geoMapBound = "1";
+    zoneInput.addEventListener("change", renderHomePickupMap);
+  }
+
   const locateBtn = qs("#homeGeoLocateBtn");
   if (locateBtn && locateBtn.dataset.geoBound !== "1") {
     locateBtn.dataset.geoBound = "1";
@@ -3965,6 +3979,26 @@ function ensureClientOrderEnhancements() {
   if (clearBtn && clearBtn.dataset.geoBound !== "1") {
     clearBtn.dataset.geoBound = "1";
     clearBtn.addEventListener("click", clearHomeLocation);
+  }
+
+  const pickupMap = qs("#homePickupMap");
+  if (pickupMap && pickupMap.dataset.geoBound !== "1") {
+    pickupMap.dataset.geoBound = "1";
+    pickupMap.addEventListener("click", adjustHomeLocationFromMapEvent);
+    pickupMap.addEventListener("keydown", (event) => {
+      if (!["Enter", " "].includes(event.key)) return;
+      event.preventDefault();
+      if (!homeLocation) {
+        showWarning("Primero activa el GPS para confirmar que estas cerca del punto de recogida.");
+        return;
+      }
+      homeLocation = {
+        ...homeLocation,
+        capturedAt: new Date().toISOString(),
+      };
+      renderHomeLocationStatus();
+      showSuccess("Punto de recogida confirmado.");
+    });
   }
 
   qsa("[data-garment-qty]").forEach((input) => {
@@ -4037,6 +4071,10 @@ function validateOrderWizardStep(stepIndex, options = {}) {
       return fail("Agrega la direccion del servicio para continuar.", addressInput);
     }
 
+    if (!homeLocation) {
+      return fail("Activa el GPS para confirmar el punto real de recogida.", qs("#homeGeoLocateBtn"));
+    }
+
     if (!dateInput?.value) {
       return fail("Selecciona la fecha del servicio.", dateInput);
     }
@@ -4086,7 +4124,7 @@ function renderOrderWizardReview() {
     : money(breakdown.total);
   const gpsText = homeLocation
     ? `GPS listo en ${homeLocation.inferredZone || zone}`
-    : "GPS opcional";
+    : "GPS pendiente";
 
   reviewCard.innerHTML = `
     <div class="order-review-top">
@@ -4094,7 +4132,7 @@ function renderOrderWizardReview() {
         <div class="estimate-kicker">Control final</div>
         <div class="estimate-title">Tu solicitud ya casi esta lista</div>
       </div>
-      <div class="estimate-badge">${homeLocation ? "GPS listo" : "Revision manual"}</div>
+      <div class="estimate-badge">${homeLocation ? "GPS listo" : "GPS requerido"}</div>
     </div>
     <div class="order-review-grid">
       <div class="order-review-item">
@@ -4149,7 +4187,7 @@ function renderOrderWizardState() {
     : money(breakdown.total);
   const stepCaptions = [
     packs.length ? `${packs.length} paquete${packs.length === 1 ? "" : "s"} listo${packs.length === 1 ? "" : "s"}` : "Elige tu servicio",
-    address ? `${zone} | ${date ? fmtDate(date) : "Agenda pendiente"}` : "Agrega direccion y horario",
+    address ? `${zone} | ${homeLocation ? "GPS listo" : "GPS pendiente"} | ${date ? fmtDate(date) : "Agenda pendiente"}` : "Agrega direccion, GPS y horario",
     breakdown.lines.length ? totalText : "Revisa antes de confirmar",
   ];
 
@@ -4775,6 +4813,12 @@ function formatAccuracyMeters(value) {
   return `Precision aprox. ${(meters / 1000).toFixed(1)} km`;
 }
 
+function clampNumber(value, min, max) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return min;
+  return Math.max(min, Math.min(max, numeric));
+}
+
 function inferZoneFromCoords(lat, lng) {
   const point = { lat: Number(lat), lng: Number(lng) };
   if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return "Distrito Nacional";
@@ -4948,6 +4992,93 @@ function bindGestorZoneFilters(scope) {
   });
 }
 
+function getHomePickupMapCenter() {
+  const zone = qs("#homeZone")?.value || homeLocation?.inferredZone || "Distrito Nacional";
+  return ZONE_CENTERS[zone] || ZONE_CENTERS["Distrito Nacional"];
+}
+
+function getHomePickupMapSpan() {
+  return { lat: 0.07, lng: 0.09 };
+}
+
+function pointToHomePickupMapPosition(point) {
+  const location = normalizeOrderLocation(point);
+  const center = getHomePickupMapCenter();
+  const span = getHomePickupMapSpan();
+  if (!location || !center) return { x: 50, y: 50 };
+
+  return {
+    x: clampNumber(50 + ((location.lng - center.lng) / span.lng) * 100, 8, 92),
+    y: clampNumber(50 - ((location.lat - center.lat) / span.lat) * 100, 8, 92),
+  };
+}
+
+function homePickupMapPositionToPoint(x, y) {
+  const center = getHomePickupMapCenter();
+  const span = getHomePickupMapSpan();
+  const lat = center.lat + ((50 - y) / 100) * span.lat;
+  const lng = center.lng + ((x - 50) / 100) * span.lng;
+
+  return {
+    lat,
+    lng,
+    accuracy: homeLocation?.accuracy || null,
+    inferredZone: inferZoneFromCoords(lat, lng),
+    source: homeLocation?.source === "browser" ? "browser-adjusted" : "map-adjusted",
+    capturedAt: new Date().toISOString(),
+  };
+}
+
+function renderHomePickupMap() {
+  const map = qs("#homePickupMap");
+  const pin = qs("#homePickupPin");
+  const accuracy = qs("#homePickupAccuracy");
+  const label = qs("#homePickupMapLabel");
+  if (!map || !pin || !accuracy || !label) return;
+
+  map.classList.toggle("pickup-map-empty", !homeLocation);
+  map.classList.toggle("pickup-map-ready", Boolean(homeLocation));
+
+  if (!homeLocation) {
+    pin.style.left = "50%";
+    pin.style.top = "50%";
+    accuracy.style.width = "96px";
+    accuracy.style.height = "96px";
+    label.textContent = "Activa el GPS para ver el punto de recogida";
+    return;
+  }
+
+  const position = pointToHomePickupMapPosition(homeLocation);
+  const accuracySize = clampNumber(Number(homeLocation.accuracy || 0) / 3, 54, 150);
+  pin.style.left = `${position.x}%`;
+  pin.style.top = `${position.y}%`;
+  accuracy.style.left = `${position.x}%`;
+  accuracy.style.top = `${position.y}%`;
+  accuracy.style.width = `${accuracySize}px`;
+  accuracy.style.height = `${accuracySize}px`;
+  label.textContent = `Punto de recogida | ${homeLocation.inferredZone || qs("#homeZone")?.value || "Zona sugerida"}`;
+}
+
+function adjustHomeLocationFromMapEvent(event) {
+  const map = qs("#homePickupMap");
+  if (!map) return;
+
+  if (!homeLocation) {
+    showWarning("Primero activa el GPS para confirmar que estas cerca del punto de recogida.");
+    return;
+  }
+
+  const rect = map.getBoundingClientRect();
+  const x = clampNumber(((event.clientX - rect.left) / rect.width) * 100, 8, 92);
+  const y = clampNumber(((event.clientY - rect.top) / rect.height) * 100, 8, 92);
+  homeLocation = homePickupMapPositionToPoint(x, y);
+
+  const zoneInput = qs("#homeZone");
+  if (zoneInput && ZONE_CENTERS[homeLocation.inferredZone]) zoneInput.value = homeLocation.inferredZone;
+  renderHomeLocationStatus();
+  showSuccess("Punto de recogida ajustado.");
+}
+
 function renderHomeLocationStatus() {
   const statusNode = qs("#homeGeoStatus");
   const metaNode = qs("#homeGeoMeta");
@@ -4957,22 +5088,26 @@ function renderHomeLocationStatus() {
   if (!statusNode || !metaNode || !coordsNode || !zoneNode || !openLink) return;
 
   if (!homeLocation) {
-    statusNode.textContent = "Sin ubicacion capturada";
+    renderHomePickupMap();
+    statusNode.textContent = "GPS requerido para recoger";
     statusNode.className = "geo-status";
-    metaNode.textContent = "Comparte tu GPS para fijar el punto exacto de recogida y sugerir la zona mas cercana.";
+    metaNode.textContent = "Comparte tu ubicacion para fijar el punto exacto de recogida y sugerir la zona mas cercana.";
     coordsNode.textContent = "Aun no hay coordenadas registradas en este pedido.";
-    zoneNode.textContent = "Zona manual";
+    zoneNode.textContent = "GPS pendiente";
     zoneNode.className = "estimate-tag estimate-tag-muted";
     openLink.removeAttribute("href");
     openLink.setAttribute("aria-disabled", "true");
     openLink.classList.add("btn-disabled");
     updateOrderEstimatePreview();
+    renderOrderWizardState();
     return;
   }
 
+  renderHomePickupMap();
   statusNode.textContent = "Ubicacion capturada";
   statusNode.className = "geo-status geo-status-success";
-  metaNode.textContent = `${formatAccuracyMeters(homeLocation.accuracy)} | Fuente: GPS del navegador`;
+  const sourceLabel = homeLocation.source?.includes("adjusted") ? "GPS ajustado en mapa" : "GPS del navegador";
+  metaNode.textContent = `${formatAccuracyMeters(homeLocation.accuracy)} | Fuente: ${sourceLabel}`;
   coordsNode.textContent = formatCoordinatePair(homeLocation);
   zoneNode.textContent = `Zona sugerida: ${homeLocation.inferredZone || "Distrito Nacional"}`;
   zoneNode.className = "estimate-tag";
@@ -4980,6 +5115,7 @@ function renderHomeLocationStatus() {
   openLink.removeAttribute("aria-disabled");
   openLink.classList.remove("btn-disabled");
   updateOrderEstimatePreview();
+  renderOrderWizardState();
 }
 
 function clearHomeLocation() {
@@ -5723,6 +5859,13 @@ async function onCreateOrder(e) {
   const pricingMode = qs("#homePricingMode")?.value || "por_libra";
   const selectedGarments = collectSelectedGarments();
   const lbs = getHomeEstimatedLbs();
+
+  if (!homeLocation) {
+    showWarning("Activa el GPS para confirmar el punto real de recogida.");
+    goToOrderWizardStep(1, { force: true, skipScroll: true, skipFocus: true });
+    qs("#homeGeoLocateBtn")?.focus?.();
+    return;
+  }
 
   if (!packs.length) {
     showWarning("Selecciona al menos un paquete principal.");

@@ -920,8 +920,8 @@ app.post(
       return res.status(400).json({ message: "Las libras indicadas no son validas." });
     }
 
-    if (location && !normalizedLocation) {
-      return res.status(400).json({ message: "La ubicacion enviada no es valida." });
+    if (!normalizedLocation) {
+      return res.status(400).json({ message: "La ubicacion GPS es obligatoria para crear una recogida a domicilio." });
     }
 
     const user = req.user;

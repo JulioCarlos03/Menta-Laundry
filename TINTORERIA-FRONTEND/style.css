@@ -3699,6 +3699,176 @@ body.theme-light .geo-status-success{
   line-height: 1.45;
 }
 
+.pickup-map{
+  position: relative;
+  overflow: hidden;
+  min-height: 220px;
+  margin-top: 14px;
+  border-radius: 22px;
+  border: 1px solid rgba(130,205,176,.22);
+  background:
+    linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(255,255,255,.04) 1px, transparent 1px),
+    linear-gradient(135deg, rgba(28,83,91,.54), rgba(12,48,62,.82));
+  background-size: 34px 34px, 34px 34px, 100% 100%;
+  cursor: crosshair;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 18px 34px rgba(8,35,48,.12);
+}
+
+body.theme-light .pickup-map{
+  border-color: rgba(97,181,160,.30);
+  background:
+    linear-gradient(90deg, rgba(20,99,112,.07) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(20,99,112,.07) 1px, transparent 1px),
+    linear-gradient(135deg, rgba(232,250,247,.96), rgba(238,247,241,.94));
+  background-size: 34px 34px, 34px 34px, 100% 100%;
+}
+
+.pickup-map:focus-visible{
+  outline: 3px solid rgba(100,206,221,.45);
+  outline-offset: 3px;
+}
+
+.pickup-map::before,
+.pickup-map::after{
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.pickup-map::before{
+  inset: 18px;
+  border: 1px dashed rgba(255,255,255,.16);
+  border-radius: 18px;
+}
+
+body.theme-light .pickup-map::before{
+  border-color: rgba(20,99,112,.14);
+}
+
+.pickup-map::after{
+  inset: auto 22px 22px auto;
+  width: 86px;
+  height: 32px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.10);
+}
+
+body.theme-light .pickup-map::after{
+  background: rgba(255,255,255,.70);
+}
+
+.pickup-map-grid{
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 26% 32%, rgba(130,205,176,.30) 0 5px, transparent 6px),
+    radial-gradient(circle at 72% 64%, rgba(100,206,221,.26) 0 5px, transparent 6px),
+    radial-gradient(circle at 44% 76%, rgba(214,182,129,.24) 0 4px, transparent 5px);
+}
+
+.pickup-map-route{
+  position: absolute;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.14);
+  transform-origin: left center;
+  pointer-events: none;
+}
+
+body.theme-light .pickup-map-route{
+  background: rgba(33,117,130,.12);
+}
+
+.pickup-map-route-a{
+  left: 8%;
+  top: 38%;
+  width: 84%;
+  transform: rotate(-12deg);
+}
+
+.pickup-map-route-b{
+  left: 18%;
+  top: 70%;
+  width: 68%;
+  transform: rotate(18deg);
+}
+
+.pickup-map-accuracy{
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: 1px solid rgba(100,206,221,.52);
+  background: rgba(100,206,221,.12);
+  transform: translate(-50%, -50%);
+  transition: left .2s ease, top .2s ease, width .2s ease, height .2s ease;
+  pointer-events: none;
+}
+
+.pickup-map-pin{
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  border-radius: 50% 50% 50% 6px;
+  background: linear-gradient(135deg, #65d7c0, #2f9d84);
+  border: 3px solid #f7fffb;
+  box-shadow: 0 16px 28px rgba(0,0,0,.22);
+  transform: translate(-50%, -78%) rotate(-45deg);
+  transition: left .2s ease, top .2s ease, opacity .2s ease;
+  pointer-events: none;
+}
+
+.pickup-map-pin::after{
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: #f7fffb;
+}
+
+.pickup-map-empty .pickup-map-pin,
+.pickup-map-empty .pickup-map-accuracy{
+  opacity: .32;
+}
+
+.pickup-map-ready .pickup-map-pin,
+.pickup-map-ready .pickup-map-accuracy{
+  opacity: 1;
+}
+
+.pickup-map-label{
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  width: fit-content;
+  max-width: calc(100% - 32px);
+  padding: 9px 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.16);
+  background: rgba(6,28,38,.78);
+  color: #effbfc;
+  font-size: .78rem;
+  font-weight: 800;
+  line-height: 1.25;
+  backdrop-filter: blur(10px);
+}
+
+body.theme-light .pickup-map-label{
+  border-color: rgba(33,117,130,.14);
+  background: rgba(255,255,255,.84);
+  color: #173442;
+}
+
 .geo-coords{
   margin-top: 12px;
   padding: 12px 14px;
@@ -4069,6 +4239,15 @@ body.theme-light .order-wizard-actions-shell{
     flex: 1 1 100%;
     width: 100%;
     justify-content: center;
+  }
+
+  .pickup-map{
+    min-height: 190px;
+  }
+
+  .pickup-map-label{
+    width: auto;
+    border-radius: 16px;
   }
 }
 
