@@ -4742,6 +4742,60 @@ function getOrderMapLink(order) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
+function getOrderDestinationQuery(order) {
+  const location = getOrderLocation(order);
+  if (location) return `${location.lat},${location.lng}`;
+
+  return [order?.address || "", order?.zone || "", "Republica Dominicana"]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(", ") || BUSINESS_PROFILE.address;
+}
+
+function getOrderDirectionsLink(order, origin = null) {
+  const params = new URLSearchParams({
+    api: "1",
+    destination: getOrderDestinationQuery(order),
+    travelmode: "driving",
+  });
+  const normalizedOrigin = normalizeOrderLocation(origin);
+  if (normalizedOrigin) params.set("origin", `${normalizedOrigin.lat},${normalizedOrigin.lng}`);
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+}
+
+function getOrderWazeLink(order) {
+  const location = getOrderLocation(order);
+  if (location) {
+    return `https://waze.com/ul?ll=${encodeURIComponent(`${location.lat},${location.lng}`)}&navigate=yes`;
+  }
+
+  return `https://waze.com/ul?q=${encodeURIComponent(getOrderDestinationQuery(order))}&navigate=yes`;
+}
+
+function getOrderContactMessage(order) {
+  return `Hola, te contactamos por tu pedido #${order?.id || ""} de ${BUSINESS_PROFILE.name}.`;
+}
+
+function renderOrderOpsLinks(order, options = {}) {
+  const contactDigits = getOrderContactDigits(order);
+  const mapsLink = options.directions
+    ? getOrderDirectionsLink(order, options.origin)
+    : getOrderMapLink(order);
+  const includeContact = options.includeContact !== false;
+  const classes = ["order-op-actions"];
+  if (options.compact) classes.push("order-op-actions-compact");
+  if (options.className) classes.push(options.className);
+
+  return `
+    <div class="${classes.join(" ")}">
+      <a class="order-op-link order-op-link-primary" href="${mapsLink}" target="_blank" rel="noreferrer">${escapeHtml(options.mapLabel || "Google Maps")}</a>
+      <a class="order-op-link" href="${getOrderWazeLink(order)}" target="_blank" rel="noreferrer">Waze</a>
+      ${includeContact ? `<a class="order-op-link" href="tel:+${contactDigits}">Llamar</a>` : ""}
+      ${includeContact ? `<a class="order-op-link" href="https://wa.me/${contactDigits}?text=${encodeURIComponent(getOrderContactMessage(order))}" target="_blank" rel="noreferrer">WhatsApp</a>` : ""}
+    </div>
+  `;
+}
+
 function getRiderPriority(order, index) {
   const status = String(order?.status || "").toLowerCase();
   if (status.includes("cancel")) return { label: "Cancelado", tone: "rider-priority-base" };
@@ -6732,6 +6786,7 @@ function renderGestorAssignMobileCards(pendientes) {
             </select>
           </div>
           <div class="gestor-mobile-actions">
+            ${renderOrderOpsLinks(order, { compact: true })}
             <button class="btn btn-small" data-factura="${order.id}">Factura</button>
             <button class="btn btn-small btn-outline" data-detalle="${order.id}">Detalle</button>
             <button class="btn btn-primary btn-small" data-save="${order.id}">Asignar</button>
@@ -6785,6 +6840,7 @@ function renderGestorInProgressMobileCards(enProceso) {
             </div>
           </div>
           <div class="gestor-mobile-actions">
+            ${renderOrderOpsLinks(order, { compact: true })}
             <button class="btn btn-small" data-factura="${order.id}">Factura</button>
             <button class="btn btn-small btn-outline" data-detalle="${order.id}">Detalle</button>
           </div>
@@ -6869,6 +6925,7 @@ function renderGestorAssignTable({
         <div class="table-main">${escapeHtml(o.userName)}</div>
         <div class="table-sub">${escapeHtml(o.phone || o.email || "Sin contacto directo")}</div>
         <div class="signal-chip-row">${renderSignalChips(o)}</div>
+        ${renderOrderOpsLinks(o, { compact: true })}
       </td>
       <td>
         <div class="table-main">${escapeHtml(o.zone)}</div>
@@ -6974,6 +7031,7 @@ function renderGestorInProgressPanel({
       <td>
         <div class="table-main">${escapeHtml(o.address || "Por definir")}</div>
         <div class="table-sub">${escapeHtml(location ? formatCoordinatePair(location) : "Sin coordenadas registradas")}</div>
+        ${renderOrderOpsLinks(o, { compact: true })}
       </td>
       <td>
         <div class="table-main">${fmtDate(o.date)} ${fmtTime(o.time)}</div>
@@ -7159,7 +7217,6 @@ function renderRepartidorHome() {
         const contactDigits = getOrderContactDigits(order);
         const packs = getOrderPacks(order);
         const garments = getNormalizedGarments(order);
-        const mapsLink = getOrderMapLink(order);
         const notes = String(order.notes || "").trim();
         const location = getOrderLocation(order);
         const zoneDistance = getOrderDistanceFromZone(order);
@@ -7204,7 +7261,13 @@ function renderRepartidorHome() {
               <div class="rider-inline-tools">
                 <button class="btn btn-small btn-outline" type="button" data-copy-address="${order.id}">Copiar direccion</button>
                 ${location ? `<button class="btn btn-small btn-outline" type="button" data-copy-coords="${order.id}">Copiar GPS</button>` : ""}
-                <a class="btn btn-small btn-outline" href="${mapsLink}" target="_blank" rel="noreferrer">Abrir mapa</a>
+                ${renderOrderOpsLinks(order, {
+                  compact: true,
+                  directions: true,
+                  origin: routePlan.routeOrigin.point,
+                  includeContact: false,
+                  mapLabel: "Google Maps",
+                })}
               </div>
             </div>
 
@@ -7263,7 +7326,7 @@ function renderRepartidorHome() {
 
             <div class="rider-action-row">
               <a class="btn btn-small" href="tel:+${contactDigits}">Llamar</a>
-              <a class="btn btn-small btn-outline" href="https://wa.me/${contactDigits}?text=${encodeURIComponent(`Hola, te contactamos por tu pedido #${order.id} de ${BUSINESS_PROFILE.name}.`)}" target="_blank" rel="noreferrer">WhatsApp</a>
+              <a class="btn btn-small btn-outline" href="https://wa.me/${contactDigits}?text=${encodeURIComponent(getOrderContactMessage(order))}" target="_blank" rel="noreferrer">WhatsApp</a>
               <button class="btn btn-small btn-outline" type="button" data-copy-phone="${order.id}">Copiar telefono</button>
               <button class="btn btn-small" type="button" data-factura="${order.id}">Factura</button>
               <button class="btn btn-small btn-outline" type="button" data-detalle="${order.id}">Detalle</button>
@@ -7420,7 +7483,6 @@ function openDetail(ev) {
   const garments = breakdown.garments;
   const contactPhone = getOrderContactPhone(order);
   const location = getOrderLocation(order);
-  const mapsLink = getOrderMapLink(order);
   const historyItems = (order.history || [])
     .slice()
     .reverse()
@@ -7471,7 +7533,12 @@ function openDetail(ev) {
         <div><span class="detail-label">Precision</span><div class="detail-value">${escapeHtml(location ? formatAccuracyMeters(location.accuracy) : "No disponible")}</div></div>
       </div>
       <div class="rider-inline-tools" style="margin-top:12px;">
-        <a class="btn btn-small btn-outline" href="${mapsLink}" target="_blank" rel="noreferrer">Abrir punto en mapa</a>
+        ${renderOrderOpsLinks(order, {
+          compact: true,
+          directions: currentUser?.role === "repartidor",
+          origin: riderLocation,
+          mapLabel: currentUser?.role === "repartidor" ? "Ruta Google" : "Google Maps",
+        })}
       </div>
     </div>
 
