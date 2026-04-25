@@ -37,6 +37,9 @@ let ordersCache = [];
 let repartidoresCache = [];
 let localOrdersCache = [];
 let homeLocation = null;
+let homePickupLeafletMap = null;
+let homePickupLeafletMarker = null;
+let homePickupLeafletAccuracy = null;
 let riderLocation = null;
 let gestorZoneFilter = "all";
 let clientActivityFilter = "all";
@@ -3839,12 +3842,14 @@ function ensureClientOrderEnhancements() {
           </div>
           <span id="homeGeoZone" class="estimate-tag estimate-tag-muted">GPS pendiente</span>
         </div>
-        <div id="homePickupMap" class="pickup-map pickup-map-empty" role="button" tabindex="0" aria-label="Mini mapa del punto de recogida">
-          <div class="pickup-map-grid" aria-hidden="true"></div>
-          <div class="pickup-map-route pickup-map-route-a" aria-hidden="true"></div>
-          <div class="pickup-map-route pickup-map-route-b" aria-hidden="true"></div>
-          <div id="homePickupAccuracy" class="pickup-map-accuracy" aria-hidden="true"></div>
-          <div id="homePickupPin" class="pickup-map-pin" aria-hidden="true"></div>
+        <div id="homePickupMap" class="pickup-map pickup-map-empty" role="button" tabindex="0" aria-label="Mapa real del punto de recogida">
+          <div id="homePickupMapFallback" class="pickup-map-fallback" aria-hidden="true">
+            <div class="pickup-map-grid"></div>
+            <div class="pickup-map-route pickup-map-route-a"></div>
+            <div class="pickup-map-route pickup-map-route-b"></div>
+            <div id="homePickupAccuracy" class="pickup-map-accuracy"></div>
+            <div id="homePickupPin" class="pickup-map-pin"></div>
+          </div>
           <div id="homePickupMapLabel" class="pickup-map-label">Activa el GPS para ver el punto de recogida</div>
         </div>
         <div id="homeGeoCoords" class="geo-coords">Aun no hay coordenadas registradas en este pedido.</div>
@@ -5029,15 +5034,118 @@ function homePickupMapPositionToPoint(x, y) {
   };
 }
 
+function setHomeLocationFromMapPoint(lat, lng, options = {}) {
+  const normalizedLat = Number(lat);
+  const normalizedLng = Number(lng);
+  if (!Number.isFinite(normalizedLat) || !Number.isFinite(normalizedLng)) return;
+
+  homeLocation = {
+    lat: normalizedLat,
+    lng: normalizedLng,
+    accuracy: options.accuracy ?? homeLocation?.accuracy ?? null,
+    inferredZone: inferZoneFromCoords(normalizedLat, normalizedLng),
+    source: options.source || (homeLocation?.source === "browser" ? "browser-adjusted" : "map-adjusted"),
+    capturedAt: new Date().toISOString(),
+  };
+
+  const zoneInput = qs("#homeZone");
+  if (zoneInput && ZONE_CENTERS[homeLocation.inferredZone]) zoneInput.value = homeLocation.inferredZone;
+  renderHomeLocationStatus();
+  if (options.notify) showSuccess(options.notify);
+}
+
+function ensureHomeLeafletMap() {
+  const mapEl = qs("#homePickupMap");
+  if (!mapEl || !window.L) return false;
+
+  const center = getHomePickupMapCenter();
+  mapEl.classList.add("pickup-map-leaflet");
+
+  if (!homePickupLeafletMap) {
+    homePickupLeafletMap = window.L.map(mapEl, {
+      zoomControl: false,
+      attributionControl: true,
+      scrollWheelZoom: false,
+    }).setView([center.lat, center.lng], 14);
+
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap",
+    }).addTo(homePickupLeafletMap);
+
+    window.L.control.zoom({ position: "bottomright" }).addTo(homePickupLeafletMap);
+
+    homePickupLeafletMarker = window.L.marker([center.lat, center.lng], {
+      draggable: true,
+      autoPan: true,
+      title: "Punto de recogida",
+    }).addTo(homePickupLeafletMap);
+
+    homePickupLeafletMarker.on("dragend", () => {
+      const point = homePickupLeafletMarker.getLatLng();
+      setHomeLocationFromMapPoint(point.lat, point.lng, {
+        source: "map-adjusted",
+        notify: "Punto de recogida ajustado.",
+      });
+    });
+
+    homePickupLeafletMap.on("click", (event) => {
+      if (!homeLocation) {
+        showWarning("Primero activa el GPS para confirmar que estas cerca del punto de recogida.");
+        return;
+      }
+      setHomeLocationFromMapPoint(event.latlng.lat, event.latlng.lng, {
+        source: "map-adjusted",
+        notify: "Punto de recogida ajustado.",
+      });
+    });
+  }
+
+  window.setTimeout(() => homePickupLeafletMap?.invalidateSize?.(), 40);
+  return true;
+}
+
 function renderHomePickupMap() {
   const map = qs("#homePickupMap");
   const pin = qs("#homePickupPin");
   const accuracy = qs("#homePickupAccuracy");
   const label = qs("#homePickupMapLabel");
-  if (!map || !pin || !accuracy || !label) return;
+  if (!map || !label) return;
 
   map.classList.toggle("pickup-map-empty", !homeLocation);
   map.classList.toggle("pickup-map-ready", Boolean(homeLocation));
+  const center = getHomePickupMapCenter();
+  const target = homeLocation || center;
+
+  if (ensureHomeLeafletMap()) {
+    const latLng = [target.lat, target.lng];
+    const zoom = homeLocation ? 16 : 13;
+    homePickupLeafletMap.setView(latLng, zoom, { animate: true });
+    homePickupLeafletMarker?.setLatLng(latLng);
+    homePickupLeafletMarker?.setOpacity(homeLocation ? 1 : 0.42);
+
+    if (homePickupLeafletAccuracy) {
+      homePickupLeafletAccuracy.remove();
+      homePickupLeafletAccuracy = null;
+    }
+
+    if (homeLocation) {
+      homePickupLeafletAccuracy = window.L.circle(latLng, {
+        radius: clampNumber(homeLocation.accuracy || 80, 35, 250),
+        color: "#2fa883",
+        weight: 1,
+        fillColor: "#64cedd",
+        fillOpacity: 0.14,
+      }).addTo(homePickupLeafletMap);
+    }
+
+    label.textContent = homeLocation
+      ? `Punto de recogida | ${homeLocation.inferredZone || qs("#homeZone")?.value || "Zona sugerida"}`
+      : "Activa el GPS para fijar el pin exacto";
+    return;
+  }
+
+  if (!pin || !accuracy) return;
 
   if (!homeLocation) {
     pin.style.left = "50%";
@@ -5062,6 +5170,7 @@ function renderHomePickupMap() {
 function adjustHomeLocationFromMapEvent(event) {
   const map = qs("#homePickupMap");
   if (!map) return;
+  if (homePickupLeafletMap) return;
 
   if (!homeLocation) {
     showWarning("Primero activa el GPS para confirmar que estas cerca del punto de recogida.");
