@@ -2374,6 +2374,10 @@ function renderClientHome() {
   }
 
   if (nextOrderCard) {
+    nextOrderCard.classList.add("home-focus-card");
+    nextOrderCard.classList.toggle("home-focus-card-active", Boolean(active));
+    nextOrderCard.classList.toggle("home-focus-card-empty", !active);
+
     if (!active) {
       nextOrderCard.innerHTML = `
         <div class="home-focus-shell home-focus-shell-empty">
