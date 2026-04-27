@@ -5600,6 +5600,167 @@ function buildRiderRoutePlan(orders) {
   };
 }
 
+const RIDER_NEARBY_GROUP_KM = 1.6;
+const RIDER_MULTI_STOP_LIMIT = 9;
+
+function formatRoutePoint(point) {
+  const location = normalizeOrderLocation(point);
+  if (!location) return "";
+  return `${location.lat},${location.lng}`;
+}
+
+function getRiderGpsRouteEntries(routePlan) {
+  return (routePlan?.active || []).filter((entry) => getOrderLocation(entry.order));
+}
+
+function buildRiderMultiStopDirectionsLink(routePlan) {
+  const gpsEntries = getRiderGpsRouteEntries(routePlan).slice(0, RIDER_MULTI_STOP_LIMIT);
+  if (!gpsEntries.length) return "";
+
+  const destinationPoint = getOrderLocation(gpsEntries[gpsEntries.length - 1].order);
+  const params = new URLSearchParams({
+    api: "1",
+    destination: formatRoutePoint(destinationPoint),
+    travelmode: "driving",
+  });
+
+  if (routePlan?.routeOrigin?.point) {
+    params.set("origin", formatRoutePoint(routePlan.routeOrigin.point));
+  }
+
+  const waypointEntries = gpsEntries.length > 1 ? gpsEntries.slice(0, -1) : [];
+  if (waypointEntries.length) {
+    params.set(
+      "waypoints",
+      waypointEntries
+        .map((entry) => formatRoutePoint(getOrderLocation(entry.order)))
+        .filter(Boolean)
+        .join("|")
+    );
+  }
+
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+}
+
+function buildRiderNearbyGroups(routePlan) {
+  const gpsEntries = getRiderGpsRouteEntries(routePlan);
+  const groups = [];
+  let currentGroup = [];
+
+  gpsEntries.forEach((entry) => {
+    const point = getOrderLocation(entry.order);
+    const previous = currentGroup[currentGroup.length - 1];
+    const previousPoint = previous ? getOrderLocation(previous.order) : null;
+    const distanceFromPrevious = previousPoint && point ? haversineKm(previousPoint, point) : null;
+
+    if (!currentGroup.length || Number.isFinite(distanceFromPrevious) && distanceFromPrevious <= RIDER_NEARBY_GROUP_KM) {
+      currentGroup.push({ ...entry, nearbyDistanceKm: distanceFromPrevious });
+      return;
+    }
+
+    if (currentGroup.length > 1) groups.push(currentGroup);
+    currentGroup = [{ ...entry, nearbyDistanceKm: null }];
+  });
+
+  if (currentGroup.length > 1) groups.push(currentGroup);
+  return groups;
+}
+
+function renderRiderRouteGuide(routePlan) {
+  const activeEntries = routePlan?.active || [];
+  const gpsEntries = getRiderGpsRouteEntries(routePlan);
+  const noGpsEntries = activeEntries.filter((entry) => !getOrderLocation(entry.order));
+  const nearbyGroups = buildRiderNearbyGroups(routePlan);
+  const fullRouteLink = buildRiderMultiStopDirectionsLink(routePlan);
+  const totalKm = activeEntries.reduce((sum, entry) => (
+    Number.isFinite(entry.distanceFromPreviousKm) ? sum + entry.distanceFromPreviousKm : sum
+  ), 0);
+  const mappedStops = Math.min(gpsEntries.length, RIDER_MULTI_STOP_LIMIT);
+
+  if (!activeEntries.length) {
+    return `
+      <div class="rider-route-guide">
+        <div class="detail-section-title">Guia de recogidas cercanas</div>
+        <div class="rider-guide-empty">Cuando tengas pedidos activos, aqui veras la ruta recomendada por cercania.</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="rider-route-guide">
+      <div class="rider-route-guide-head">
+        <div>
+          <div class="detail-section-title">Guia de recogidas cercanas</div>
+          <div class="card-secondary">
+            ${gpsEntries.length} paradas con GPS | ${noGpsEntries.length} sin GPS | ${totalKm > 0 ? `${totalKm.toFixed(1)} km estimados` : "Distancia por confirmar"}
+          </div>
+        </div>
+        ${
+          fullRouteLink
+            ? `<a class="btn btn-small btn-primary" href="${fullRouteLink}" target="_blank" rel="noreferrer">Abrir ruta completa</a>`
+            : `<span class="btn btn-small btn-outline btn-disabled">Ruta sin GPS</span>`
+        }
+      </div>
+
+      <div class="rider-guide-grid">
+        <div class="rider-guide-panel">
+          <div class="rider-guide-panel-title">Orden recomendado</div>
+          <div class="rider-guide-stop-list">
+            ${
+              gpsEntries.length
+                ? gpsEntries.slice(0, RIDER_MULTI_STOP_LIMIT).map((entry) => `
+                  <div class="rider-guide-stop">
+                    <span>${entry.stopNumber}</span>
+                    <div>
+                      <strong>#${entry.order.id} | ${escapeHtml(entry.order.userName || "Cliente")}</strong>
+                      <small>${escapeHtml(entry.order.zone || "--")} | ${escapeHtml(entry.distanceLabel)}</small>
+                    </div>
+                  </div>
+                `).join("")
+                : `<div class="rider-guide-muted">No hay paradas con GPS para calcular cercania.</div>`
+            }
+          </div>
+          ${
+            gpsEntries.length > RIDER_MULTI_STOP_LIMIT
+              ? `<div class="rider-guide-note">Maps abre las primeras ${mappedStops} paradas para mantener la ruta estable.</div>`
+              : ""
+          }
+        </div>
+
+        <div class="rider-guide-panel">
+          <div class="rider-guide-panel-title">Pedidos cerca entre si</div>
+          <div class="rider-nearby-list">
+            ${
+              nearbyGroups.length
+                ? nearbyGroups.slice(0, 3).map((group, index) => `
+                  <div class="rider-nearby-group">
+                    <strong>Bloque ${index + 1}: ${group.length} recogidas cercanas</strong>
+                    <span>Conviene hacerlas juntas antes de saltar a otra zona.</span>
+                    <div class="rider-nearby-orders">
+                      ${group.map((entry) => `<small>#${entry.order.id} | ${escapeHtml(entry.order.userName || "Cliente")} | ${escapeHtml(entry.order.zone || "--")}</small>`).join("")}
+                    </div>
+                  </div>
+                `).join("")
+                : `<div class="rider-guide-muted">Por ahora no hay dos paradas suficientemente cercanas.</div>`
+            }
+          </div>
+        </div>
+      </div>
+
+      ${
+        noGpsEntries.length
+          ? `
+            <div class="rider-no-gps-strip">
+              <strong>Revisar antes de salir:</strong>
+              <span>${escapeHtml(noGpsEntries.slice(0, 4).map((entry) => `#${entry.order.id} ${entry.order.address || entry.order.zone || ""}`).join(" | "))}</span>
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
 function refreshRiderRoute() {
   if (currentUser?.role === "repartidor") renderRepartidorHome();
 }
@@ -7583,6 +7744,7 @@ function renderRepartidorHome() {
         }
       </div>
     </div>
+    ${renderRiderRouteGuide(routePlan)}
   `;
 
   boardCard.innerHTML = `
