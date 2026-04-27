@@ -642,14 +642,40 @@ function getDeliveryProof(order) {
   const note = String(proof.note || "").trim();
   const deliveredAt = proof.deliveredAt || proof.at || "";
   const byName = String(proof.byName || "").trim();
+  const deliveryCodeVerified = Boolean(proof.deliveryCodeVerified);
 
   if (!receiverName && !deliveryMethod && !note && !deliveredAt) return null;
-  return { receiverName, deliveryMethod, note, deliveredAt, byName };
+  return { receiverName, deliveryMethod, note, deliveredAt, byName, deliveryCodeVerified };
 }
 
 function formatDeliveryProofDate(proof) {
   if (!proof?.deliveredAt) return "Sin hora registrada";
   return [fmtDate(proof.deliveredAt), fmtTime(proof.deliveredAt)].filter(Boolean).join(" ");
+}
+
+function getDeliveryCode(order) {
+  const status = String(order?.status || "").toLowerCase();
+  const code = String(order?.deliveryCode || "").replace(/\D/g, "");
+  if (currentUser?.role !== "cliente") return "";
+  if (["entregado", "cancelado"].includes(status)) return "";
+  return code.length === 6 ? code : "";
+}
+
+function renderDeliveryCodeCard(order, options = {}) {
+  const code = getDeliveryCode(order);
+  if (!code) return "";
+
+  const compactClass = options.compact ? " delivery-code-card-compact" : "";
+  const title = options.title || "Codigo de entrega";
+  return `
+    <div class="delivery-code-card${compactClass}">
+      <div>
+        <span>${escapeHtml(title)}</span>
+        <strong>${code.split("").map((digit) => `<b>${digit}</b>`).join("")}</strong>
+      </div>
+      <small>Solo compartelo cuando recibas tus prendas. El repartidor no puede cerrar la entrega sin este PIN.</small>
+    </div>
+  `;
 }
 
 function renderDeliveryProofSummary(order, options = {}) {
@@ -668,7 +694,7 @@ function renderDeliveryProofSummary(order, options = {}) {
         <span class="delivery-proof-icon">OK</span>
         <div>
           <div class="delivery-proof-title">Entrega validada</div>
-          <div class="delivery-proof-meta">${escapeHtml(formatDeliveryMethodLabel(proof.deliveryMethod))} | ${escapeHtml(formatDeliveryProofDate(proof))}${byLine}</div>
+          <div class="delivery-proof-meta">${escapeHtml(formatDeliveryMethodLabel(proof.deliveryMethod))} | ${escapeHtml(formatDeliveryProofDate(proof))}${byLine}${proof.deliveryCodeVerified ? " | Codigo verificado" : ""}</div>
         </div>
       </div>
       <div class="delivery-proof-receiver">
@@ -703,6 +729,10 @@ function ensureDeliveryProofDialog() {
       <div id="deliveryProofMessage" class="delivery-proof-message" style="display:none;"></div>
       <div class="delivery-proof-fields">
         <label>
+          <span>Codigo del cliente</span>
+          <input id="deliveryProofCode" class="delivery-code-input" type="text" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code" required>
+        </label>
+        <label>
           <span>Nombre de quien recibio</span>
           <input id="deliveryProofReceiver" type="text" maxlength="80" placeholder="Ej. Maria Perez" autocomplete="off" required>
         </label>
@@ -733,13 +763,26 @@ function ensureDeliveryProofDialog() {
     node.addEventListener("click", () => closeDeliveryProofDialog(null));
   });
 
+  dialog.querySelector("#deliveryProofCode")?.addEventListener("input", (event) => {
+    event.target.value = event.target.value.replace(/\D/g, "").slice(0, 6);
+  });
+
   dialog.querySelector("#deliveryProofForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
 
     const receiverName = dialog.querySelector("#deliveryProofReceiver")?.value.trim() || "";
     const deliveryMethod = dialog.querySelector("#deliveryProofMethod")?.value.trim() || "";
     const note = dialog.querySelector("#deliveryProofNote")?.value.trim() || "";
+    const deliveryCode = dialog.querySelector("#deliveryProofCode")?.value.replace(/\D/g, "") || "";
     const message = dialog.querySelector("#deliveryProofMessage");
+
+    if (deliveryCode.length !== 6) {
+      if (message) {
+        message.textContent = "Pide al cliente su codigo de 6 digitos.";
+        message.style.display = "block";
+      }
+      return;
+    }
 
     if (receiverName.length < 2) {
       if (message) {
@@ -757,7 +800,7 @@ function ensureDeliveryProofDialog() {
       return;
     }
 
-    closeDeliveryProofDialog({ receiverName, deliveryMethod, note });
+    closeDeliveryProofDialog({ receiverName, deliveryMethod, note, deliveryCode });
   });
 
   document.body.appendChild(dialog);
@@ -780,9 +823,16 @@ function closeDeliveryProofDialog(result = null) {
 
 function showDeliveryProofDialog(order) {
   if (!document.body) {
+    const deliveryCode = window.prompt("Codigo de entrega del cliente:");
+    if (!deliveryCode) return Promise.resolve(null);
     const receiverName = window.prompt("Nombre de quien recibio el pedido:");
     if (!receiverName) return Promise.resolve(null);
-    return Promise.resolve({ receiverName: receiverName.trim(), deliveryMethod: "cliente", note: "" });
+    return Promise.resolve({
+      receiverName: receiverName.trim(),
+      deliveryMethod: "cliente",
+      note: "",
+      deliveryCode: String(deliveryCode).replace(/\D/g, ""),
+    });
   }
 
   const dialog = ensureDeliveryProofDialog();
@@ -798,7 +848,7 @@ function showDeliveryProofDialog(order) {
   const message = dialog.querySelector("#deliveryProofMessage");
   form?.reset();
   if (copy) {
-    copy.textContent = `Pedido #${order?.id || "--"} | ${order?.userName || "Cliente"} | confirma quien recibio antes de cerrar.`;
+    copy.textContent = `Pedido #${order?.id || "--"} | ${order?.userName || "Cliente"} | pide el PIN de 6 digitos al cliente antes de cerrar.`;
   }
   if (message) {
     message.textContent = "";
@@ -810,7 +860,7 @@ function showDeliveryProofDialog(order) {
   document.body.classList.add("dialog-open");
 
   window.requestAnimationFrame(() => {
-    dialog.querySelector("#deliveryProofReceiver")?.focus();
+    dialog.querySelector("#deliveryProofCode")?.focus();
   });
 
   return new Promise((resolve) => {
@@ -2692,6 +2742,7 @@ function renderClientHome() {
             <span class="estimate-tag">${escapeHtml(active.zone || focusZone)}</span>
             <span class="estimate-tag ${activeLocation ? "" : "estimate-tag-muted"}">${activeLocation ? "GPS verificado" : "Direccion manual"}</span>
           </div>
+          ${renderDeliveryCodeCard(active)}
           <div class="client-support-row home-focus-actions">
             <button class="btn btn-small" type="button" data-factura="${active.id}">Factura</button>
             <button class="btn btn-small btn-outline" type="button" data-detalle="${active.id}">Detalle</button>
@@ -3042,6 +3093,7 @@ function renderClientActivity() {
         <div class="activity-focus-note">
           ${escapeHtml(getOrderLatestMovementText(featuredOrder))}. ${escapeHtml(featuredOrder.repartidorName ? `Repartidor asignado: ${featuredOrder.repartidorName}.` : "Asignacion pendiente por el equipo.")}
         </div>
+        ${renderDeliveryCodeCard(featuredOrder, { compact: true })}
         <div class="timeline-actions activity-focus-actions">
           <button class="btn btn-small" data-factura="${featuredOrder.id}">Factura</button>
           <button class="btn btn-small btn-outline" data-detalle="${featuredOrder.id}">Detalle</button>
@@ -3168,6 +3220,7 @@ function renderClientActivity() {
           <strong>${escapeHtml(o.address || "Direccion pendiente")}</strong>
           <span>${escapeHtml(flags.hasGps ? `Ubicacion valida para ${location?.inferredZone || o.zone || "tu zona"}` : "Sin punto GPS registrado. Seguimos usando la direccion escrita.")}</span>
         </div>
+        ${renderDeliveryCodeCard(o, { compact: true })}
         <div class="timeline-history-note">
           <span>Ultimo movimiento</span>
           <strong>${escapeHtml(getOrderLatestMovementText(o))}</strong>
@@ -8339,6 +8392,8 @@ function openDetail(ev) {
         <div class="detail-note">${escapeHtml(order.notes)}</div>
       </div>
     ` : ""}
+
+    ${renderDeliveryCodeCard(order)}
 
     ${renderDeliveryProofSummary(order)}
 

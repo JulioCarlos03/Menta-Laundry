@@ -67,6 +67,14 @@ const deliveryProofSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    deliveryCodeVerified: {
+      type: Boolean,
+      default: false,
+    },
+    deliveryCodeVerifiedAt: {
+      type: Date,
+      default: null,
+    },
   },
   { _id: false }
 );

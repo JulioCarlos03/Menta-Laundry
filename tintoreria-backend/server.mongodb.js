@@ -120,6 +120,7 @@ const ORDER_STATUS_TRANSITIONS = {
 };
 const PHONE_REGEX = /^[0-9+\-\s()]{7,20}$/;
 const DELIVERY_PROOF_METHODS = new Set(["cliente", "porteria", "recepcion", "familiar", "otro"]);
+const DELIVERY_CODE_LENGTH = 6;
 
 function publicUser(user) {
   const safe = user?.toObject ? user.toObject() : { ...user };
@@ -129,6 +130,53 @@ function publicUser(user) {
   delete safe.passwordResetToken;
   delete safe.passwordResetExpiresAt;
   return safe;
+}
+
+function normalizeOrderForPublic(order) {
+  if (!order) return null;
+  return order?.toObject ? order.toObject() : { ...order };
+}
+
+function buildDeliveryCode(order) {
+  const safeOrder = normalizeOrderForPublic(order) || {};
+  const createdAt = safeOrder.createdAt ? new Date(safeOrder.createdAt) : null;
+  const source = [
+    safeOrder.id || "",
+    safeOrder.userId || "",
+    createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : "",
+  ].join(":");
+  const secret = process.env.DELIVERY_CODE_SECRET || JWT_SECRET;
+  const digest = crypto.createHmac("sha256", secret).update(source).digest("hex");
+  const codeNumber = Number.parseInt(digest.slice(0, 12), 16) % 10 ** DELIVERY_CODE_LENGTH;
+  return String(codeNumber).padStart(DELIVERY_CODE_LENGTH, "0");
+}
+
+function normalizeDeliveryCode(value) {
+  return String(value || "").replace(/\D/g, "").slice(0, DELIVERY_CODE_LENGTH);
+}
+
+function canExposeDeliveryCode(order, user) {
+  const safeOrder = normalizeOrderForPublic(order) || {};
+  const status = asText(safeOrder.status).toLowerCase();
+  return (
+    user?.role === "cliente" &&
+    Number(safeOrder.userId) === Number(user.id) &&
+    safeOrder.channel === "domicilio" &&
+    !["entregado", "cancelado"].includes(status)
+  );
+}
+
+function publicOrder(order, user) {
+  const safeOrder = normalizeOrderForPublic(order);
+  if (!safeOrder) return safeOrder;
+
+  if (canExposeDeliveryCode(safeOrder, user)) {
+    safeOrder.deliveryCode = buildDeliveryCode(safeOrder);
+  } else {
+    delete safeOrder.deliveryCode;
+  }
+
+  return safeOrder;
 }
 
 function issueAccessToken(user) {
@@ -432,11 +480,12 @@ function isValidTextField(value, { min = 1, max = 240, required = true } = {}) {
   return text.length >= min && text.length <= max;
 }
 
-function normalizeDeliveryProofInput(input, user) {
+function normalizeDeliveryProofInput(input, user, order) {
   const proof = input && typeof input === "object" ? input : {};
   const receiverName = asText(proof.receiverName);
   const deliveryMethod = asText(proof.deliveryMethod).toLowerCase();
   const note = asText(proof.note);
+  const deliveryCode = normalizeDeliveryCode(proof.deliveryCode);
 
   if (!isValidTextField(receiverName, { min: 2, max: 80, required: true })) {
     return { error: "Indica quien recibio el pedido." };
@@ -450,14 +499,26 @@ function normalizeDeliveryProofInput(input, user) {
     return { error: "La nota de entrega no puede superar 240 caracteres." };
   }
 
+  if (deliveryCode.length !== DELIVERY_CODE_LENGTH) {
+    return { error: "Indica el codigo de entrega de 6 digitos." };
+  }
+
+  if (deliveryCode !== buildDeliveryCode(order)) {
+    return { error: "El codigo de entrega no coincide con la cuenta del cliente." };
+  }
+
+  const verifiedAt = new Date();
+
   return {
     value: {
       receiverName,
       deliveryMethod,
       note,
-      deliveredAt: new Date(),
+      deliveredAt: verifiedAt,
       byUserId: Number.isFinite(Number(user?.id)) ? Number(user.id) : null,
       byName: asText(user?.name) || "Repartidor",
+      deliveryCodeVerified: true,
+      deliveryCodeVerifiedAt: verifiedAt,
     },
   };
 }
@@ -811,7 +872,7 @@ app.get(
     }
 
     const orders = await Order.find(query).sort({ id: 1 }).lean();
-    res.json(orders);
+    res.json(orders.map((order) => publicOrder(order, req.user)));
   })
 );
 
@@ -846,9 +907,9 @@ app.get(
 
     res.json({
       user: publicUser(req.user),
-      orders,
+      orders: orders.map((order) => publicOrder(order, req.user)),
       repartidores: reps.map(publicUser),
-      localOrders,
+      localOrders: localOrders.map((order) => publicOrder(order, req.user)),
       localOrdersLoaded: includeLocalOrders,
     });
   })
@@ -985,7 +1046,7 @@ app.post(
       history: [{ status: "pendiente", by: "cliente", at: new Date() }],
     });
 
-    res.json({ message: "Pedido creado", order });
+    res.json({ message: "Pedido creado", order: publicOrder(order, req.user) });
   })
 );
 
@@ -1032,7 +1093,7 @@ app.put(
     addHistory(order, "asignado", "gestor");
     await order.save();
 
-    res.json({ message: "Pedido asignado", order });
+    res.json({ message: "Pedido asignado", order: publicOrder(order, req.user) });
   })
 );
 
@@ -1076,7 +1137,7 @@ app.put(
 
     let normalizedDeliveryProof = null;
     if (normalizedStatus === "entregado") {
-      const proofResult = normalizeDeliveryProofInput(deliveryProof, req.user);
+      const proofResult = normalizeDeliveryProofInput(deliveryProof, req.user, order);
       if (proofResult.error) {
         return res.status(400).json({ message: proofResult.error });
       }
@@ -1094,7 +1155,7 @@ app.put(
     addHistory(order, normalizedStatus, "repartidor");
     await order.save();
 
-    res.json({ message: "Estado actualizado", order });
+    res.json({ message: "Estado actualizado", order: publicOrder(order, req.user) });
   })
 );
 
@@ -1142,7 +1203,7 @@ app.put(
     addHistory(order, "cancelado", "cliente");
     await order.save();
 
-    res.json({ message: "Pedido cancelado", order });
+    res.json({ message: "Pedido cancelado", order: publicOrder(order, req.user) });
   })
 );
 
@@ -1237,7 +1298,7 @@ app.post(
       history: [{ status: "recibido", by: "cajera", at: now }],
     });
 
-    res.json({ message: "Pedido local creado", order });
+    res.json({ message: "Pedido local creado", order: publicOrder(order, req.user) });
   })
 );
 
@@ -1245,9 +1306,9 @@ app.get(
   "/api/local-orders",
   requireAuth,
   requireRole("cajera", "gestor"),
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
     const localOrders = await Order.find({ channel: "local" }).sort({ id: -1 }).lean();
-    res.json(localOrders);
+    res.json(localOrders.map((order) => publicOrder(order, req.user)));
   })
 );
 

@@ -1920,6 +1920,12 @@ body.theme-light .delivery-proof-fields textarea{
   min-height:96px;
 }
 
+.delivery-code-input{
+  letter-spacing:.35em;
+  font-size:1.15rem;
+  text-align:center;
+}
+
 .delivery-proof-message{
   margin:0 0 14px;
   padding:12px 14px;
@@ -1939,6 +1945,74 @@ body.theme-light .delivery-proof-message{
   display:flex;
   justify-content:flex-end;
   gap:12px;
+}
+
+.delivery-code-card{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  margin:14px 0;
+  padding:16px;
+  border-radius:24px;
+  border:1px solid rgba(124,204,178,.28);
+  background:
+    radial-gradient(220px 120px at 0% 0%, rgba(124,204,178,.22), transparent 72%),
+    linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,.025));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+body.theme-light .delivery-code-card{
+  background:
+    radial-gradient(220px 120px at 0% 0%, rgba(124,204,178,.22), transparent 72%),
+    linear-gradient(135deg, rgba(255,255,255,.96), rgba(247,252,250,.9));
+  box-shadow: 0 14px 34px rgba(20,83,70,.08);
+}
+
+.delivery-code-card span{
+  display:block;
+  color: var(--muted);
+  font-size:.76rem;
+  font-weight:950;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+}
+
+.delivery-code-card strong{
+  display:flex;
+  gap:7px;
+  margin-top:8px;
+}
+
+.delivery-code-card b{
+  display:grid;
+  place-items:center;
+  width:34px;
+  height:42px;
+  border-radius:13px;
+  border:1px solid rgba(124,204,178,.34);
+  background: rgba(124,204,178,.15);
+  color: var(--text);
+  font-size:1.12rem;
+  line-height:1;
+}
+
+.delivery-code-card small{
+  max-width:280px;
+  color: var(--muted);
+  line-height:1.5;
+  font-weight:700;
+}
+
+.delivery-code-card-compact{
+  align-items:flex-start;
+  flex-direction:column;
+  gap:10px;
+  padding:14px;
+}
+
+.delivery-code-card-compact small{
+  max-width:none;
 }
 
 .delivery-proof-summary{
@@ -2036,6 +2110,21 @@ body.theme-light .delivery-proof-summary{
 
   .delivery-proof-actions .confirm-dialog-btn{
     width:100%;
+  }
+
+  .delivery-code-card{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+
+  .delivery-code-card strong{
+    gap:5px;
+  }
+
+  .delivery-code-card b{
+    width:30px;
+    height:38px;
+    border-radius:12px;
   }
 }
 

@@ -5,6 +5,7 @@ if (process.env.USE_LEGACY_DEMO_SERVER !== "true") {
 } else {
 const express = require("express");
 const cors = require("cors");
+const crypto = require("crypto");
 require("dotenv").config();
 
 const app = express();
@@ -122,6 +123,7 @@ const BUSINESS_INFO = {
     "Gracias por confiar en Menta Laundry. Frescura, cuidado y seguimiento en cada prenda.",
 };
 const DELIVERY_PROOF_METHODS = new Set(["cliente", "porteria", "recepcion", "familiar", "otro"]);
+const DELIVERY_CODE_LENGTH = 6;
 
 /* ============================================================
    HELPERS
@@ -203,11 +205,43 @@ function normalizeRequestedStatus(value) {
   return status;
 }
 
-function normalizeDeliveryProofInput(input) {
+function normalizeDeliveryCode(value) {
+  return String(value || "").replace(/\D/g, "").slice(0, DELIVERY_CODE_LENGTH);
+}
+
+function buildDeliveryCode(order) {
+  const createdAt = order?.createdAt ? new Date(order.createdAt) : null;
+  const source = [
+    order?.id || "",
+    order?.userId || "",
+    createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : "",
+  ].join(":");
+  const secret = process.env.DELIVERY_CODE_SECRET || process.env.JWT_SECRET || "legacy-demo-delivery-code";
+  const digest = crypto.createHmac("sha256", secret).update(source).digest("hex");
+  const codeNumber = Number.parseInt(digest.slice(0, 12), 16) % 10 ** DELIVERY_CODE_LENGTH;
+  return String(codeNumber).padStart(DELIVERY_CODE_LENGTH, "0");
+}
+
+function withDeliveryCode(order) {
+  if (!order || order.channel !== "domicilio") return order;
+  const status = normalizeRequestedStatus(order.status);
+  if (["entregado", "cancelado"].includes(status)) {
+    const { deliveryCode, ...safe } = order;
+    return safe;
+  }
+
+  return {
+    ...order,
+    deliveryCode: buildDeliveryCode(order),
+  };
+}
+
+function normalizeDeliveryProofInput(input, order) {
   const proof = input && typeof input === "object" ? input : {};
   const receiverName = asText(proof.receiverName);
   const deliveryMethod = asText(proof.deliveryMethod).toLowerCase();
   const note = asText(proof.note);
+  const deliveryCode = normalizeDeliveryCode(proof.deliveryCode);
 
   if (!isValidTextField(receiverName, { min: 2, max: 80, required: true })) {
     return { error: "Indica quien recibio el pedido." };
@@ -221,14 +255,26 @@ function normalizeDeliveryProofInput(input) {
     return { error: "La nota de entrega no puede superar 240 caracteres." };
   }
 
+  if (deliveryCode.length !== DELIVERY_CODE_LENGTH) {
+    return { error: "Indica el codigo de entrega de 6 digitos." };
+  }
+
+  if (deliveryCode !== buildDeliveryCode(order)) {
+    return { error: "El codigo de entrega no coincide con la cuenta del cliente." };
+  }
+
+  const verifiedAt = nowISO();
+
   return {
     value: {
       receiverName,
       deliveryMethod,
       note,
-      deliveredAt: nowISO(),
+      deliveredAt: verifiedAt,
       byUserId: null,
       byName: "Repartidor",
+      deliveryCodeVerified: true,
+      deliveryCodeVerifiedAt: verifiedAt,
     },
   };
 }
@@ -286,7 +332,7 @@ app.get("/api/repartidores", (req, res) => {
 
 // Listar pedidos
 app.get("/api/orders", (req, res) => {
-  res.json(orders);
+  res.json(orders.map(withDeliveryCode));
 });
 
 // Crear pedido domicilio (cliente)
@@ -360,7 +406,7 @@ app.post("/api/orders", (req, res) => {
   };
 
   orders.push(newOrder);
-  res.json({ message: "Pedido creado", order: newOrder });
+  res.json({ message: "Pedido creado", order: withDeliveryCode(newOrder) });
 });
 
 // Asignar pedido a repartidor (gestor)
@@ -379,7 +425,7 @@ app.put("/api/orders/:id/assign", (req, res) => {
   order.status = "asignado";
   addHistory(order, "asignado", "gestor");
 
-  res.json({ message: "Pedido asignado", order });
+  res.json({ message: "Pedido asignado", order: withDeliveryCode(order) });
 });
 
 // Cambiar estado + lbs (repartidor)
@@ -395,7 +441,7 @@ app.put("/api/orders/:id/status", (req, res) => {
 
   let normalizedDeliveryProof = null;
   if (normalizedStatus === "entregado") {
-    const proofResult = normalizeDeliveryProofInput(deliveryProof);
+    const proofResult = normalizeDeliveryProofInput(deliveryProof, order);
     if (proofResult.error) {
       return res.status(400).json({ message: proofResult.error });
     }
@@ -414,7 +460,7 @@ app.put("/api/orders/:id/status", (req, res) => {
 
   addHistory(order, normalizedStatus, "repartidor");
 
-  res.json({ message: "Estado actualizado", order });
+  res.json({ message: "Estado actualizado", order: withDeliveryCode(order) });
 });
 
 // Cancelar pedido (cliente) SOLO 5 min
@@ -440,7 +486,7 @@ app.put("/api/orders/:id/cancel", (req, res) => {
   order.status = "cancelado";
   addHistory(order, "cancelado", "cliente");
 
-  res.json({ message: "Pedido cancelado", order });
+  res.json({ message: "Pedido cancelado", order: withDeliveryCode(order) });
 });
 
 /* ============================================================
