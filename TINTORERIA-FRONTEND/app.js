@@ -45,12 +45,17 @@ let gestorZoneFilter = "all";
 let clientActivityFilter = "all";
 let backendWarmPromise = null;
 let backendWarmAt = 0;
+let autoRefreshTimer = null;
+let autoRefreshInFlight = false;
+let lastAutoRefreshAt = 0;
 let dashboardDataVersion = 0;
 let appEntryVisibleAt = 0;
 const screenRenderVersions = new Map();
 const dashboardResourceState = {
   localOrdersLoaded: false,
 };
+const AUTO_REFRESH_INTERVAL_MS = 18000;
+const AUTO_REFRESH_FOCUS_THROTTLE_MS = 7000;
 const ORDER_WIZARD_STEPS = [
   {
     key: "service",
@@ -1681,12 +1686,19 @@ function setSession(user, token) {
   } else {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
   }
+
+  if (currentUser && token) {
+    startAutoRefresh();
+  } else {
+    stopAutoRefresh();
+  }
 }
 
 function clearSession() {
   currentUser = null;
   localStorage.removeItem(USER_STORAGE_KEY);
   localStorage.removeItem(TOKEN_STORAGE_KEY);
+  stopAutoRefresh();
 }
 
 function getActiveScreenId() {
@@ -2085,6 +2097,94 @@ async function loadAll({ screenId = getActiveScreenId(), merge = false } = {}) {
   renderScreenForCurrentRole(resolvedScreen, { force: true });
 
   return payload;
+}
+
+function isElementVisible(element) {
+  if (!element || element.hidden) return false;
+  const style = window.getComputedStyle(element);
+  return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+}
+
+function isAutoRefreshPausedByInteraction() {
+  const openOverlay = [
+    "#detailModal",
+    "#invoiceModal",
+    "#confirmDialog",
+    "#deliveryProofDialog",
+    "#authActionPanel",
+  ].some((selector) => isElementVisible(qs(selector)));
+
+  if (openOverlay) return true;
+
+  const active = document.activeElement;
+  if (!active || active === document.body) return false;
+
+  const isEditable =
+    active.matches?.("input, textarea, select, [contenteditable='true']") ||
+    active.closest?.("[contenteditable='true']");
+
+  return Boolean(isEditable && active.closest("#appView, #authView"));
+}
+
+function shouldSkipAutoRefresh() {
+  if (!currentUser || !getStoredToken()) return true;
+  if (document.visibilityState === "hidden") return true;
+  return isAutoRefreshPausedByInteraction();
+}
+
+async function autoRefreshDashboard({ force = false } = {}) {
+  if (autoRefreshInFlight || shouldSkipAutoRefresh()) return false;
+
+  const now = Date.now();
+  if (!force && now - lastAutoRefreshAt < AUTO_REFRESH_FOCUS_THROTTLE_MS) {
+    return false;
+  }
+
+  autoRefreshInFlight = true;
+  lastAutoRefreshAt = now;
+
+  try {
+    const activeScreen = resolveRoleScreen(getActiveScreenId());
+    const payload = await fetchDashboardPayload(activeScreen);
+    applyDashboardPayload(payload, { merge: true });
+
+    updateUIByRole();
+    updateDashboardHero();
+    renderScreenForCurrentRole(activeScreen, { force: true });
+
+    return true;
+  } catch (_error) {
+    return false;
+  } finally {
+    autoRefreshInFlight = false;
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  if (!currentUser || !getStoredToken()) return;
+
+  autoRefreshTimer = window.setInterval(() => {
+    autoRefreshDashboard();
+  }, AUTO_REFRESH_INTERVAL_MS);
+}
+
+function stopAutoRefresh() {
+  if (!autoRefreshTimer) return;
+  window.clearInterval(autoRefreshTimer);
+  autoRefreshTimer = null;
+}
+
+function attachAutoRefreshEvents() {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      autoRefreshDashboard({ force: true });
+    }
+  });
+
+  window.addEventListener("focus", () => {
+    autoRefreshDashboard();
+  });
 }
 
 /* ============================================================
@@ -8695,6 +8795,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   attachNavEvents();
   attachAuthEvents();
   attachAppEvents();
+  attachAutoRefreshEvents();
 
   const handledAuthLink = await handleAuthLinkState();
   if (handledAuthLink) {
