@@ -3638,10 +3638,10 @@ const BUSINESS_PROFILE = {
   name: "Menta Laundry",
   legalName: "Menta Laundry SRL",
   tagline: "Frescura en cada prenda",
-  rnc: "1-32-45896-2",
+  rnc: "",
   phone: "829-448-7876",
   email: "admin@mentalaundry.com",
-  address: "Av. 27 de Febrero 135, Distrito Nacional",
+  address: "Isabel Aguiar",
   schedule: "Lunes a sabado | 8:00 AM - 10:00 PM",
 };
 
@@ -7391,7 +7391,7 @@ function openInvoice(ev) {
   qs("#invoiceBusiness").innerHTML = `
     ${escapeHtml(BUSINESS_PROFILE.tagline)}<br>
     ${escapeHtml(BUSINESS_PROFILE.address)}<br>
-    RNC ${escapeHtml(BUSINESS_PROFILE.rnc)} | ${escapeHtml(BUSINESS_PROFILE.phone)} | ${escapeHtml(BUSINESS_PROFILE.email)}
+    ${escapeHtml(BUSINESS_PROFILE.phone)} | ${escapeHtml(BUSINESS_PROFILE.email)}
   `;
   qs("#invoiceMeta").innerHTML = `
     <div class="invoice-meta-row"><span>Factura</span><strong>TX-${String(order.id).padStart(5, "0")}</strong></div>
@@ -7459,7 +7459,7 @@ function openInvoice(ev) {
       : "Por confirmar"
     : money(breakdown.total);
   qs("#invoiceFooterText").textContent =
-    `${BUSINESS_PROFILE.legalName} | RNC ${BUSINESS_PROFILE.rnc} | ${BUSINESS_PROFILE.phone} | ${BUSINESS_PROFILE.email}`;
+    `${BUSINESS_PROFILE.legalName} | ${BUSINESS_PROFILE.phone} | ${BUSINESS_PROFILE.email}`;
 
   show(qs("#invoicePrintBtn"));
   qs("#invoiceModal").style.display = "flex";

@@ -74,7 +74,7 @@ let orders = [
     userEmail: "cliente@demo.com",
     phone: "829-448-7876",
     zone: "Distrito Nacional",
-    address: "Av. 27 de Febrero 135",
+    address: "Isabel Aguiar",
     serviceType: "Recogida a domicilio",
     date: "2026-01-10",
     time: "10:30",
@@ -109,8 +109,8 @@ let orders = [
 ============================================================ */
 const BUSINESS_INFO = {
   name: "Menta Laundry",
-  rnc: "1-32-45896-2",
-  address: "Av. 27 de Febrero 135, Distrito Nacional",
+  rnc: "",
+  address: "Isabel Aguiar",
   phone: "829-448-7876",
   email: "admin@mentalaundry.com",
   itbisRate: 0.18,

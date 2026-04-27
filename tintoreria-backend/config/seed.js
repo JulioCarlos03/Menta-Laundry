@@ -57,7 +57,7 @@ function buildDemoOrder() {
     userEmail: "cliente@demo.com",
     phone: "829-448-7876",
     zone: "Distrito Nacional",
-    address: "Av. 27 de Febrero 135",
+    address: "Isabel Aguiar",
     serviceType: "Recogida a domicilio",
     date,
     time,
@@ -135,8 +135,8 @@ async function seedDemoData({ User, Order }) {
     { $set: { userName: "Cliente Menta" } }
   );
   await Order.updateMany(
-    { address: "Av. Demo #123" },
-    { $set: { address: "Av. 27 de Febrero 135" } }
+    { address: { $in: ["Av. Demo #123", "Av. 27 de Febrero 135"] } },
+    { $set: { address: "Isabel Aguiar" } }
   );
 }
 

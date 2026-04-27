@@ -96,8 +96,8 @@ app.use(express.json());
 const BUSINESS_INFO = {
   name: "Menta Laundry",
   legalName: "Menta Laundry SRL",
-  rnc: "1-32-45896-2",
-  address: "Av. 27 de Febrero 135, Distrito Nacional",
+  rnc: "",
+  address: "Isabel Aguiar",
   phone: "829-448-7876",
   email: "admin@mentalaundry.com",
   itbisRate: 0.18,
