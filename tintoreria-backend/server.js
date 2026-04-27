@@ -121,6 +121,7 @@ const BUSINESS_INFO = {
   footerMessage:
     "Gracias por confiar en Menta Laundry. Frescura, cuidado y seguimiento en cada prenda.",
 };
+const DELIVERY_PROOF_METHODS = new Set(["cliente", "porteria", "recepcion", "familiar", "otro"]);
 
 /* ============================================================
    HELPERS
@@ -183,6 +184,52 @@ function normalizeLocation(location) {
     source,
     inferredZone: inferredZone || null,
     capturedAt: String(location.capturedAt || nowISO()),
+  };
+}
+
+function asText(value) {
+  return String(value ?? "").trim();
+}
+
+function isValidTextField(value, { min = 1, max = 240, required = true } = {}) {
+  const text = asText(value);
+  if (!text) return !required;
+  return text.length >= min && text.length <= max;
+}
+
+function normalizeRequestedStatus(value) {
+  const status = asText(value).toLowerCase();
+  if (status === "camino") return "en camino";
+  return status;
+}
+
+function normalizeDeliveryProofInput(input) {
+  const proof = input && typeof input === "object" ? input : {};
+  const receiverName = asText(proof.receiverName);
+  const deliveryMethod = asText(proof.deliveryMethod).toLowerCase();
+  const note = asText(proof.note);
+
+  if (!isValidTextField(receiverName, { min: 2, max: 80, required: true })) {
+    return { error: "Indica quien recibio el pedido." };
+  }
+
+  if (!DELIVERY_PROOF_METHODS.has(deliveryMethod)) {
+    return { error: "Selecciona como fue recibida la entrega." };
+  }
+
+  if (!isValidTextField(note, { max: 240, required: false })) {
+    return { error: "La nota de entrega no puede superar 240 caracteres." };
+  }
+
+  return {
+    value: {
+      receiverName,
+      deliveryMethod,
+      note,
+      deliveredAt: nowISO(),
+      byUserId: null,
+      byName: "Repartidor",
+    },
   };
 }
 
@@ -338,21 +385,34 @@ app.put("/api/orders/:id/assign", (req, res) => {
 // Cambiar estado + lbs (repartidor)
 app.put("/api/orders/:id/status", (req, res) => {
   const orderId = Number(req.params.id);
-  const { status, lbs } = req.body || {};
+  const { status, lbs, deliveryProof } = req.body || {};
+  const normalizedStatus = normalizeRequestedStatus(status);
 
   const order = orders.find((o) => o.id === orderId);
   if (!order) return res.status(404).json({ message: "Pedido no encontrado" });
 
   if (!status) return res.status(400).json({ message: "Falta el estado" });
 
-  order.status = status;
+  let normalizedDeliveryProof = null;
+  if (normalizedStatus === "entregado") {
+    const proofResult = normalizeDeliveryProofInput(deliveryProof);
+    if (proofResult.error) {
+      return res.status(400).json({ message: proofResult.error });
+    }
+    normalizedDeliveryProof = proofResult.value;
+  }
+
+  order.status = normalizedStatus;
 
   // si rep pone lbs (para factura), guardarlo
   if (lbs !== undefined) {
     order.lbs = Number(lbs) || 0;
   }
+  if (normalizedDeliveryProof) {
+    order.deliveryProof = normalizedDeliveryProof;
+  }
 
-  addHistory(order, status, "repartidor");
+  addHistory(order, normalizedStatus, "repartidor");
 
   res.json({ message: "Estado actualizado", order });
 });

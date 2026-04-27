@@ -539,6 +539,7 @@ async function handleAuthLinkState() {
 }
 
 let activeConfirmResolver = null;
+let activeDeliveryProofResolver = null;
 
 function ensureConfirmDialog() {
   if (!document.body) return null;
@@ -616,6 +617,204 @@ function showConfirmDialog(message, options = {}) {
 
   return new Promise((resolve) => {
     activeConfirmResolver = resolve;
+  });
+}
+
+const DELIVERY_METHOD_LABELS = {
+  cliente: "Cliente",
+  porteria: "Porteria",
+  recepcion: "Recepcion",
+  familiar: "Familiar",
+  otro: "Otro",
+};
+
+function formatDeliveryMethodLabel(method) {
+  const key = String(method || "").trim().toLowerCase();
+  return DELIVERY_METHOD_LABELS[key] || "Entrega validada";
+}
+
+function getDeliveryProof(order) {
+  const proof = order?.deliveryProof;
+  if (!proof || typeof proof !== "object") return null;
+
+  const receiverName = String(proof.receiverName || proof.receivedBy || "").trim();
+  const deliveryMethod = String(proof.deliveryMethod || proof.method || "").trim();
+  const note = String(proof.note || "").trim();
+  const deliveredAt = proof.deliveredAt || proof.at || "";
+  const byName = String(proof.byName || "").trim();
+
+  if (!receiverName && !deliveryMethod && !note && !deliveredAt) return null;
+  return { receiverName, deliveryMethod, note, deliveredAt, byName };
+}
+
+function formatDeliveryProofDate(proof) {
+  if (!proof?.deliveredAt) return "Sin hora registrada";
+  return [fmtDate(proof.deliveredAt), fmtTime(proof.deliveredAt)].filter(Boolean).join(" ");
+}
+
+function renderDeliveryProofSummary(order, options = {}) {
+  const proof = getDeliveryProof(order);
+  if (!proof) return "";
+
+  const compactClass = options.compact ? " delivery-proof-summary-compact" : "";
+  const note = proof.note
+    ? `<div class="delivery-proof-note">${escapeHtml(proof.note)}</div>`
+    : "";
+  const byLine = proof.byName ? ` | ${escapeHtml(proof.byName)}` : "";
+
+  return `
+    <div class="delivery-proof-summary${compactClass}">
+      <div class="delivery-proof-summary-top">
+        <span class="delivery-proof-icon">OK</span>
+        <div>
+          <div class="delivery-proof-title">Entrega validada</div>
+          <div class="delivery-proof-meta">${escapeHtml(formatDeliveryMethodLabel(proof.deliveryMethod))} | ${escapeHtml(formatDeliveryProofDate(proof))}${byLine}</div>
+        </div>
+      </div>
+      <div class="delivery-proof-receiver">
+        Recibido por <strong>${escapeHtml(proof.receiverName || "Sin nombre")}</strong>
+      </div>
+      ${note}
+    </div>
+  `;
+}
+
+function ensureDeliveryProofDialog() {
+  if (!document.body) return null;
+
+  let dialog = qs("#deliveryProofDialog");
+  if (dialog) return dialog;
+
+  dialog = document.createElement("div");
+  dialog.id = "deliveryProofDialog";
+  dialog.className = "delivery-proof-overlay";
+  dialog.setAttribute("aria-hidden", "true");
+  dialog.innerHTML = `
+    <div class="delivery-proof-backdrop" data-delivery-proof-action="cancel"></div>
+    <form id="deliveryProofForm" class="delivery-proof-dialog" role="dialog" aria-modal="true" aria-labelledby="deliveryProofTitle">
+      <div class="delivery-proof-dialog-head">
+        <div>
+          <div class="delivery-proof-eyebrow">Cierre de ruta</div>
+          <h3 id="deliveryProofTitle" class="delivery-proof-dialog-title">Validar entrega</h3>
+          <p id="deliveryProofCopy" class="delivery-proof-dialog-copy">Registra quien recibio el pedido antes de cerrarlo.</p>
+        </div>
+        <button type="button" class="delivery-proof-close" data-delivery-proof-action="cancel" aria-label="Cerrar">X</button>
+      </div>
+      <div id="deliveryProofMessage" class="delivery-proof-message" style="display:none;"></div>
+      <div class="delivery-proof-fields">
+        <label>
+          <span>Nombre de quien recibio</span>
+          <input id="deliveryProofReceiver" type="text" maxlength="80" placeholder="Ej. Maria Perez" autocomplete="off" required>
+        </label>
+        <label>
+          <span>Metodo de entrega</span>
+          <select id="deliveryProofMethod" required>
+            <option value="">Seleccionar...</option>
+            <option value="cliente">Cliente directo</option>
+            <option value="porteria">Porteria / seguridad</option>
+            <option value="recepcion">Recepcion</option>
+            <option value="familiar">Familiar</option>
+            <option value="otro">Otro</option>
+          </select>
+        </label>
+        <label class="delivery-proof-note-field">
+          <span>Nota opcional</span>
+          <textarea id="deliveryProofNote" maxlength="240" rows="3" placeholder="Ej. Entregado en recepcion, persona autorizada."></textarea>
+        </label>
+      </div>
+      <div class="delivery-proof-actions">
+        <button type="button" class="confirm-dialog-btn confirm-dialog-btn-secondary" data-delivery-proof-action="cancel">Volver</button>
+        <button type="submit" class="confirm-dialog-btn confirm-dialog-btn-primary">Cerrar como entregado</button>
+      </div>
+    </form>
+  `;
+
+  dialog.querySelectorAll("[data-delivery-proof-action='cancel']").forEach((node) => {
+    node.addEventListener("click", () => closeDeliveryProofDialog(null));
+  });
+
+  dialog.querySelector("#deliveryProofForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    const receiverName = dialog.querySelector("#deliveryProofReceiver")?.value.trim() || "";
+    const deliveryMethod = dialog.querySelector("#deliveryProofMethod")?.value.trim() || "";
+    const note = dialog.querySelector("#deliveryProofNote")?.value.trim() || "";
+    const message = dialog.querySelector("#deliveryProofMessage");
+
+    if (receiverName.length < 2) {
+      if (message) {
+        message.textContent = "Indica el nombre de quien recibio.";
+        message.style.display = "block";
+      }
+      return;
+    }
+
+    if (!deliveryMethod) {
+      if (message) {
+        message.textContent = "Selecciona como fue recibida la entrega.";
+        message.style.display = "block";
+      }
+      return;
+    }
+
+    closeDeliveryProofDialog({ receiverName, deliveryMethod, note });
+  });
+
+  document.body.appendChild(dialog);
+  return dialog;
+}
+
+function closeDeliveryProofDialog(result = null) {
+  const dialog = qs("#deliveryProofDialog");
+  const resolver = activeDeliveryProofResolver;
+  activeDeliveryProofResolver = null;
+
+  if (dialog) {
+    dialog.classList.remove("delivery-proof-visible");
+    dialog.setAttribute("aria-hidden", "true");
+  }
+
+  document.body?.classList.remove("dialog-open");
+  if (resolver) resolver(result);
+}
+
+function showDeliveryProofDialog(order) {
+  if (!document.body) {
+    const receiverName = window.prompt("Nombre de quien recibio el pedido:");
+    if (!receiverName) return Promise.resolve(null);
+    return Promise.resolve({ receiverName: receiverName.trim(), deliveryMethod: "cliente", note: "" });
+  }
+
+  const dialog = ensureDeliveryProofDialog();
+  if (!dialog) return Promise.resolve(null);
+
+  if (activeDeliveryProofResolver) {
+    activeDeliveryProofResolver(null);
+    activeDeliveryProofResolver = null;
+  }
+
+  const form = dialog.querySelector("#deliveryProofForm");
+  const copy = dialog.querySelector("#deliveryProofCopy");
+  const message = dialog.querySelector("#deliveryProofMessage");
+  form?.reset();
+  if (copy) {
+    copy.textContent = `Pedido #${order?.id || "--"} | ${order?.userName || "Cliente"} | confirma quien recibio antes de cerrar.`;
+  }
+  if (message) {
+    message.textContent = "";
+    message.style.display = "none";
+  }
+
+  dialog.classList.add("delivery-proof-visible");
+  dialog.setAttribute("aria-hidden", "false");
+  document.body.classList.add("dialog-open");
+
+  window.requestAnimationFrame(() => {
+    dialog.querySelector("#deliveryProofReceiver")?.focus();
+  });
+
+  return new Promise((resolve) => {
+    activeDeliveryProofResolver = resolve;
   });
 }
 
@@ -3313,21 +3512,15 @@ async function repartidorUpdateStatus(ev) {
     return;
   }
 
+  let deliveryProof = null;
   if (targetStatus === "entregado") {
-    const confirmed = await showConfirmDialog(
-      `Vas a cerrar el pedido #${order.id} como entregado. Confirma solo si ya fue recibido por el cliente.`,
-      {
-        title: "Cerrar entrega",
-        confirmLabel: "Si, entregado",
-        cancelLabel: "Volver",
-      }
-    );
-    if (!confirmed) return;
+    deliveryProof = await showDeliveryProofDialog(order);
+    if (!deliveryProof) return;
   }
 
   try {
     setButtonBusy(trigger, true, "Actualizando...");
-    await apiPut(`/orders/${orderId}/status`, { status: targetStatus, lbs });
+    await apiPut(`/orders/${orderId}/status`, { status: targetStatus, lbs, deliveryProof });
     showSuccess(`Pedido #${orderId} actualizado a ${formatStatusLabel(targetStatus)}.`);
     await loadAll();
   } catch (err) {
@@ -7894,6 +8087,8 @@ function renderRepartidorHome() {
               <div>${notes ? escapeHtml(notes) : "Sin notas del cliente."}</div>
             </div>
 
+            ${renderDeliveryProofSummary(order, { compact: true })}
+
             <div class="rider-action-row">
               <a class="btn btn-small" href="tel:+${contactDigits}">Llamar</a>
               <a class="btn btn-small btn-outline" href="https://wa.me/${contactDigits}?text=${encodeURIComponent(getOrderContactMessage(order))}" target="_blank" rel="noreferrer">WhatsApp</a>
@@ -7955,6 +8150,7 @@ function openInvoice(ev) {
     .reverse()
     .map((h) => `&bull; ${escapeHtml(formatStatusLabel(h.status))} (${escapeHtml(formatRoleLabel(h.by))}) ${escapeHtml(fmtDate(h.at))} ${escapeHtml(fmtTime(h.at))}`)
     .join("<br>");
+  const deliveryProof = getDeliveryProof(order);
 
   qs("#invoiceSubtitle").textContent = `Pedido #${order.id} | ${order.channel || "domicilio"}`;
   qs("#invoiceBrandName").textContent = BUSINESS_PROFILE.name;
@@ -7985,6 +8181,15 @@ function openInvoice(ev) {
     <div class="invoice-summary-row"><span>Repartidor</span><strong>${escapeHtml(order.repartidorName || "Pendiente")}</strong></div>
     <div class="invoice-summary-row"><span>Libras</span><strong>${breakdown.lbs > 0 ? `${escapeHtml(breakdown.lbs.toFixed(1))} lb` : "Pendiente de pesaje"}</strong></div>
     <div class="invoice-summary-row"><span>Ubicacion</span><strong>${escapeHtml(location ? "GPS verificado" : "Direccion manual")}</strong></div>
+    ${
+      deliveryProof
+        ? `
+          <div class="invoice-summary-row"><span>Entrega</span><strong>${escapeHtml(formatDeliveryMethodLabel(deliveryProof.deliveryMethod))}</strong></div>
+          <div class="invoice-summary-note">Recibido por ${escapeHtml(deliveryProof.receiverName || "Sin nombre")} | ${escapeHtml(formatDeliveryProofDate(deliveryProof))}</div>
+          ${deliveryProof.note ? `<div class="invoice-summary-note">Nota entrega: ${escapeHtml(deliveryProof.note)}</div>` : ""}
+        `
+        : ""
+    }
     ${
       garments.length
         ? `<div class="invoice-summary-note">Prendas: ${escapeHtml(garments.map((item) => `${item.name} x${item.qty}`).join(", "))}</div>`
@@ -8135,6 +8340,8 @@ function openDetail(ev) {
       </div>
     ` : ""}
 
+    ${renderDeliveryProofSummary(order)}
+
     <div class="detail-section">
       <div class="detail-section-title">Totales</div>
       <div class="detail-meta-grid">
@@ -8167,6 +8374,7 @@ function attachAppEvents() {
       closeInvoice();
       closeDetail();
       closeConfirmDialog(false);
+      closeDeliveryProofDialog(null);
       closeAuthActionPanel();
     }
   });
@@ -8180,6 +8388,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   ensureUIEnhancements();
   ensureNoticeStack();
   ensureConfirmDialog();
+  ensureDeliveryProofDialog();
   ensureAppLoadingBanner();
   ensureAppEntryOverlay();
   flushPendingNotices();

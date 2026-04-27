@@ -119,6 +119,7 @@ const ORDER_STATUS_TRANSITIONS = {
   "en camino": ["entregado"],
 };
 const PHONE_REGEX = /^[0-9+\-\s()]{7,20}$/;
+const DELIVERY_PROOF_METHODS = new Set(["cliente", "porteria", "recepcion", "familiar", "otro"]);
 
 function publicUser(user) {
   const safe = user?.toObject ? user.toObject() : { ...user };
@@ -429,6 +430,36 @@ function isValidTextField(value, { min = 1, max = 240, required = true } = {}) {
   const text = asText(value);
   if (!text) return !required;
   return text.length >= min && text.length <= max;
+}
+
+function normalizeDeliveryProofInput(input, user) {
+  const proof = input && typeof input === "object" ? input : {};
+  const receiverName = asText(proof.receiverName);
+  const deliveryMethod = asText(proof.deliveryMethod).toLowerCase();
+  const note = asText(proof.note);
+
+  if (!isValidTextField(receiverName, { min: 2, max: 80, required: true })) {
+    return { error: "Indica quien recibio el pedido." };
+  }
+
+  if (!DELIVERY_PROOF_METHODS.has(deliveryMethod)) {
+    return { error: "Selecciona como fue recibida la entrega." };
+  }
+
+  if (!isValidTextField(note, { max: 240, required: false })) {
+    return { error: "La nota de entrega no puede superar 240 caracteres." };
+  }
+
+  return {
+    value: {
+      receiverName,
+      deliveryMethod,
+      note,
+      deliveredAt: new Date(),
+      byUserId: Number.isFinite(Number(user?.id)) ? Number(user.id) : null,
+      byName: asText(user?.name) || "Repartidor",
+    },
+  };
 }
 
 function areValidStringItems(items, { max = 80 } = {}) {
@@ -1011,7 +1042,7 @@ app.put(
   requireRole("repartidor"),
   asyncHandler(async (req, res) => {
     const orderId = Number(req.params.id);
-    const { status, lbs } = req.body || {};
+    const { status, lbs, deliveryProof } = req.body || {};
     const normalizedStatus = normalizeRequestedStatus(status);
 
     if (!Number.isInteger(orderId) || orderId <= 0) {
@@ -1043,9 +1074,21 @@ app.put(
       return res.status(400).json({ message: "Las libras indicadas no son validas." });
     }
 
+    let normalizedDeliveryProof = null;
+    if (normalizedStatus === "entregado") {
+      const proofResult = normalizeDeliveryProofInput(deliveryProof, req.user);
+      if (proofResult.error) {
+        return res.status(400).json({ message: proofResult.error });
+      }
+      normalizedDeliveryProof = proofResult.value;
+    }
+
     order.status = normalizedStatus;
     if (lbs !== undefined) {
       order.lbs = Number(lbs) || 0;
+    }
+    if (normalizedDeliveryProof) {
+      order.deliveryProof = normalizedDeliveryProof;
     }
 
     addHistory(order, normalizedStatus, "repartidor");

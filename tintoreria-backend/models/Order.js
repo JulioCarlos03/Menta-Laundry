@@ -37,6 +37,40 @@ const historySchema = new mongoose.Schema(
   { _id: false }
 );
 
+const deliveryProofSchema = new mongoose.Schema(
+  {
+    receiverName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    deliveryMethod: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    note: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    deliveredAt: {
+      type: Date,
+      default: Date.now,
+    },
+    byUserId: {
+      type: Number,
+      default: null,
+    },
+    byName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+  },
+  { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
   {
     id: {
@@ -155,6 +189,10 @@ const orderSchema = new mongoose.Schema(
     history: {
       type: [historySchema],
       default: [],
+    },
+    deliveryProof: {
+      type: deliveryProofSchema,
+      default: null,
     },
   },
   {
