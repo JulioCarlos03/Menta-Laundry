@@ -1180,17 +1180,31 @@ function fmtTime(isoOrTime) {
 /* ============================================================
    STATUS RULES (frontend extra; backend ya valida)
 ============================================================ */
+const STATUS_FLOW = ["pendiente", "asignado", "recibido", "en camino", "entregado"];
+const ALLOWED_STATUS_TRANSITIONS = {
+  pendiente: ["asignado"],
+  asignado: ["recibido"],
+  recibido: ["en camino"],
+  "en camino": ["entregado"],
+};
+
+function normalizeStatusValue(status) {
+  const s = String(status || "").trim().toLowerCase();
+  if (s === "camino") return "en camino";
+  return s;
+}
+
 function getStatusRank(status) {
-  const s = String(status || "").toLowerCase();
+  const s = normalizeStatusValue(status);
   if (s.includes("cancelado")) return 99;
-  if (s.includes("entregado")) return 4;
-  if (s.includes("camino")) return 3;
-  if (s.includes("recibido")) return 2;
-  if (s.includes("pendiente")) return 1;
-  return 0;
+  const index = STATUS_FLOW.indexOf(s);
+  return index >= 0 ? index : 0;
 }
 function canMoveTo(currentStatus, targetStatus) {
-  return getStatusRank(targetStatus) >= getStatusRank(currentStatus);
+  const current = normalizeStatusValue(currentStatus);
+  const target = normalizeStatusValue(targetStatus);
+  if (!current || !target || current === target) return false;
+  return (ALLOWED_STATUS_TRANSITIONS[current] || []).includes(target);
 }
 
 /* ============================================================
@@ -3284,8 +3298,9 @@ function renderRepartidorHome() {
 }
 
 async function repartidorUpdateStatus(ev) {
-  const orderId = ev.target.dataset.id;
-  const state = ev.target.dataset.state;
+  const trigger = ev.currentTarget || ev.target;
+  const orderId = trigger?.dataset?.id;
+  const state = trigger?.dataset?.state;
   const order = ordersCache.find((o) => o.id == orderId);
   if (!order) return;
 
@@ -3294,15 +3309,31 @@ async function repartidorUpdateStatus(ev) {
   const targetStatus = map[state];
 
   if (!canMoveTo(order.status, targetStatus)) {
-    alert("No puedes retroceder el estado.");
+    showWarning("Ese cambio no sigue el flujo de ruta.");
     return;
   }
 
+  if (targetStatus === "entregado") {
+    const confirmed = await showConfirmDialog(
+      `Vas a cerrar el pedido #${order.id} como entregado. Confirma solo si ya fue recibido por el cliente.`,
+      {
+        title: "Cerrar entrega",
+        confirmLabel: "Si, entregado",
+        cancelLabel: "Volver",
+      }
+    );
+    if (!confirmed) return;
+  }
+
   try {
+    setButtonBusy(trigger, true, "Actualizando...");
     await apiPut(`/orders/${orderId}/status`, { status: targetStatus, lbs });
+    showSuccess(`Pedido #${orderId} actualizado a ${formatStatusLabel(targetStatus)}.`);
     await loadAll();
   } catch (err) {
-    alert(err.message || "Error cambiando estado");
+    showError(err.message || "Error cambiando estado");
+  } finally {
+    setButtonBusy(trigger, false);
   }
 }
 
@@ -4804,6 +4835,95 @@ function getRiderPriority(order, index) {
   if (index === 0) return { label: "Siguiente parada", tone: "rider-priority-next" };
   if (status.includes("recibido")) return { label: "Listo para entregar", tone: "rider-priority-soon" };
   return { label: "Pendiente de atender", tone: "rider-priority-base" };
+}
+
+function getRiderNextStatus(order) {
+  const status = normalizeStatusValue(order?.status);
+  return (ALLOWED_STATUS_TRANSITIONS[status] || [])[0] || null;
+}
+
+function getRiderNextActionLabel(order) {
+  const nextStatus = getRiderNextStatus(order);
+  if (nextStatus === "recibido") return "Marcar recibido";
+  if (nextStatus === "en camino") return "Iniciar entrega";
+  if (nextStatus === "entregado") return "Cerrar entrega";
+  return "Sin accion pendiente";
+}
+
+function renderRiderProgress(order) {
+  const currentRank = getStatusRank(order?.status);
+  const currentStatus = normalizeStatusValue(order?.status);
+  const steps = [
+    { key: "asignado", label: "Asignado" },
+    { key: "recibido", label: "Recibido" },
+    { key: "en camino", label: "En camino" },
+    { key: "entregado", label: "Entregado" },
+  ];
+
+  return `
+    <div class="rider-progress-line" aria-label="Progreso del pedido">
+      ${steps
+        .map((step) => {
+          const stepRank = getStatusRank(step.key);
+          const className = [
+            "rider-progress-step",
+            stepRank < currentRank ? "rider-progress-step-done" : "",
+            step.key === currentStatus ? "rider-progress-step-active" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+          return `
+            <div class="${className}">
+              <span></span>
+              <strong>${escapeHtml(step.label)}</strong>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function getRiderChargeSummary(order) {
+  const breakdown = buildOrderChargeBreakdown(order);
+  const totalText = breakdown.weightPending
+    ? breakdown.total > 0
+      ? `Desde ${money(breakdown.total)}`
+      : "Por confirmar"
+    : money(breakdown.total);
+  return {
+    totalText,
+    weightPending: breakdown.weightPending,
+    note: breakdown.weightPending
+      ? "Requiere pesaje para cerrar monto final."
+      : "Monto estimado listo para factura.",
+  };
+}
+
+function renderRiderReadinessChips(order) {
+  const location = getOrderLocation(order);
+  const contactPhone = getOrderContactPhone(order);
+  const charge = getRiderChargeSummary(order);
+  const chips = [
+    {
+      label: location ? "GPS listo" : "Sin GPS",
+      tone: location ? "rider-ready-chip-good" : "rider-ready-chip-warn",
+    },
+    {
+      label: contactPhone ? "Contacto listo" : "Sin contacto",
+      tone: contactPhone ? "rider-ready-chip-good" : "rider-ready-chip-warn",
+    },
+    {
+      label: charge.weightPending ? "Pesaje pendiente" : "Monto listo",
+      tone: charge.weightPending ? "rider-ready-chip-warn" : "rider-ready-chip-good",
+    },
+  ];
+
+  if (String(order?.notes || "").trim()) {
+    chips.push({ label: "Tiene nota", tone: "rider-ready-chip-info" });
+  }
+
+  return `<div class="rider-ready-row">${chips.map((chip) => `<span class="rider-ready-chip ${chip.tone}">${escapeHtml(chip.label)}</span>`).join("")}</div>`;
 }
 
 function copyText(value, successMessage = "Copiado") {
@@ -7125,6 +7245,9 @@ function renderRepartidorHome() {
   const inRoute = assigned.filter((o) => ["asignado", "recibido", "en camino"].includes(String(o.status).toLowerCase()));
   const withNotes = assigned.filter((o) => String(o.notes || "").trim()).length;
   const withGps = assigned.filter((o) => getOrderLocation(o)).length;
+  const pendingWeight = assigned.filter((o) => getRiderChargeSummary(o).weightPending).length;
+  const routeEstimate = assigned.reduce((sum, order) => sum + Number(buildOrderChargeBreakdown(order).total || 0), 0);
+  const completionPercent = assigned.length ? Math.round((delivered.length / assigned.length) * 100) : 0;
   const meta = 30;
   const extra = Math.max(todayCount - meta, 0);
   const comision = extra * 50;
@@ -7160,6 +7283,14 @@ function renderRepartidorHome() {
         <span>GPS listos</span>
         <strong>${withGps}</strong>
       </div>
+      <div class="rider-metric-card">
+        <span>Por pesar</span>
+        <strong>${pendingWeight}</strong>
+      </div>
+      <div class="rider-metric-card">
+        <span>Estimado ruta</span>
+        <strong>${money(routeEstimate)}</strong>
+      </div>
     </div>
     <div class="rider-route-panel">
       <div class="rider-route-panel-top">
@@ -7187,11 +7318,28 @@ function renderRepartidorHome() {
     </div>
     <div class="rider-route-hint">
       <div class="detail-section-title">Proxima parada sugerida</div>
-      <div class="card-secondary">
+      <div class="rider-route-progress">
+        <span style="width:${completionPercent}%"></span>
+      </div>
+      <div class="card-secondary">${delivered.length} de ${assigned.length} pedidos completados hoy en tu ruta.</div>
+      <div class="rider-next-stop-card">
         ${
           nextStop
-            ? `Parada ${nextStop.stopNumber} | Pedido #${nextStop.order.id} | ${escapeHtml(nextStop.order.userName)} | ${escapeHtml(nextStop.order.zone)} | ${escapeHtml(fmtDate(nextStop.order.date))} ${escapeHtml(fmtTime(nextStop.order.time))} | ${escapeHtml(nextStop.distanceLabel)}`
-            : "No hay pedidos activos pendientes en este momento."
+            ? `
+              <div>
+                <strong>Ahora toca: Pedido #${nextStop.order.id} | ${escapeHtml(nextStop.order.userName)}</strong>
+                <span>${escapeHtml(nextStop.order.zone)} | ${escapeHtml(fmtDate(nextStop.order.date))} ${escapeHtml(fmtTime(nextStop.order.time))} | ${escapeHtml(nextStop.distanceLabel)}</span>
+              </div>
+              <div class="rider-next-actions">
+                ${renderOrderOpsLinks(nextStop.order, {
+                  compact: true,
+                  directions: true,
+                  origin: routePlan.routeOrigin.point,
+                  mapLabel: "Ir ahora",
+                })}
+              </div>
+            `
+            : `<div><strong>Ruta limpia por ahora.</strong><span>No hay pedidos activos pendientes en este momento.</span></div>`
         }
       </div>
     </div>
@@ -7223,9 +7371,17 @@ function renderRepartidorHome() {
         const geoLabel = getGeoStatusLabel(order);
         const isFallbackContact = contactPhone === BUSINESS_PROFILE.phone && (!String(order.phone || "").trim() || String(order.phone || "").trim().toLowerCase() === "x");
         const stopBadge = entry.stopNumber ? `Parada ${entry.stopNumber}` : "Completado";
+        const charge = getRiderChargeSummary(order);
+        const nextActionLabel = getRiderNextActionLabel(order);
+        const cardClass = [
+          "rider-order-card",
+          entry.stopNumber === 1 ? "rider-order-card-active" : "",
+          !entry.stopNumber ? "rider-order-card-done" : "",
+          !location ? "rider-order-card-no-gps" : "",
+        ].filter(Boolean).join(" ");
 
         return `
-          <article class="rider-order-card">
+          <article class="${cardClass}">
             <div class="rider-order-head">
               <div class="rider-order-main">
                 <div class="rider-order-id">Pedido #${order.id}</div>
@@ -7243,6 +7399,9 @@ function renderRepartidorHome() {
                 ${renderStatusBadge(order.status)}
               </div>
             </div>
+
+            ${renderRiderProgress(order)}
+            ${renderRiderReadinessChips(order)}
 
             <div class="rider-route-distance ${entry.routeType === "sin_gps" ? "rider-route-distance-muted" : ""}">
               ${escapeHtml(entry.distanceLabel)}
@@ -7283,6 +7442,11 @@ function renderRepartidorHome() {
                 <div class="detail-value">${escapeHtml(describePricingMode(order.pricingMode))}</div>
               </div>
               <div>
+                <div class="detail-label">Estimado</div>
+                <div class="detail-value">${escapeHtml(charge.totalText)}</div>
+                <div class="rider-fallback-note">${escapeHtml(charge.note)}</div>
+              </div>
+              <div>
                 <div class="detail-label">Telefono</div>
                 <div class="detail-value">${escapeHtml(contactPhone)}</div>
                 ${isFallbackContact ? `<div class="rider-fallback-note">Numero central configurado por la empresa.</div>` : ""}
@@ -7290,6 +7454,10 @@ function renderRepartidorHome() {
               <div>
                 <div class="detail-label">Libras</div>
                 <input class="rider-lbs-input" type="number" min="0" step="0.1" data-lbs="${order.id}" value="${Number(order.lbs || 0).toFixed(1)}">
+              </div>
+              <div>
+                <div class="detail-label">Siguiente</div>
+                <div class="detail-value">${escapeHtml(nextActionLabel)}</div>
               </div>
             </div>
 
