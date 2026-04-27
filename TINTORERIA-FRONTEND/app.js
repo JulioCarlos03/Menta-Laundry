@@ -6508,6 +6508,98 @@ function getGestorOrderUrgencyScore(order) {
   return score;
 }
 
+function sortGestorDispatchQueue(orders) {
+  return [...orders].sort((a, b) => {
+    const scoreDiff = getGestorOrderUrgencyScore(b) - getGestorOrderUrgencyScore(a);
+    if (scoreDiff) return scoreDiff;
+    const momentDiff = compareByServiceMoment(a, b);
+    if (momentDiff) return momentDiff;
+    return Number(b.id || 0) - Number(a.id || 0);
+  });
+}
+
+function isActiveRouteOrder(order) {
+  return ["asignado", "recibido", "en camino"].includes(normalizeStatusValue(order?.status));
+}
+
+function getRiderWorkload(rider, orders = ordersCache) {
+  const activeOrders = orders.filter((order) => (
+    Number(order.repartidorId) === Number(rider?.id) &&
+    order.channel !== "local" &&
+    isActiveRouteOrder(order)
+  ));
+  const today = new Date().toISOString().slice(0, 10);
+
+  return {
+    activeOrders,
+    activeCount: activeOrders.length,
+    todayCount: activeOrders.filter((order) => order.date === today).length,
+    delayedCount: activeOrders.filter((order) => getOrderHighlightFlags(order).delayed).length,
+    gpsReady: activeOrders.filter((order) => getOrderLocation(order)).length,
+  };
+}
+
+function getGestorRiderRecommendation(order, riders = repartidoresCache, orders = ordersCache) {
+  const availableRiders = riders.filter((rider) => rider?.role === "repartidor" || rider?.zone);
+  if (!availableRiders.length) return null;
+
+  const orderZone = normalizeZoneName(order?.zone);
+  const sameZoneRiders = availableRiders.filter((rider) => normalizeZoneName(rider.zone) === orderZone);
+  const pool = sameZoneRiders.length ? sameZoneRiders : availableRiders;
+  const flags = getOrderHighlightFlags(order);
+
+  const candidates = pool
+    .map((rider) => {
+      const workload = getRiderWorkload(rider, orders);
+      const sameZone = normalizeZoneName(rider.zone) === orderZone;
+      const score =
+        (sameZone ? 100 : 62) +
+        (workload.activeCount === 0 ? 12 : 0) +
+        (flags.delayed && sameZone ? 8 : 0) -
+        workload.activeCount * 9 -
+        workload.delayedCount * 4 -
+        workload.todayCount * 1.5;
+
+      return {
+        rider,
+        workload,
+        sameZone,
+        score,
+        reason: sameZone
+          ? `${workload.activeCount} activos en su cobertura`
+          : `Apoyo desde ${normalizeZoneName(rider.zone)} con ${workload.activeCount} activos`,
+      };
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.workload.activeCount !== b.workload.activeCount) return a.workload.activeCount - b.workload.activeCount;
+      return String(a.rider.name || "").localeCompare(String(b.rider.name || ""), "es");
+    });
+
+  return candidates[0] || null;
+}
+
+function renderGestorRiderRecommendation(order, recommendation = getGestorRiderRecommendation(order)) {
+  if (!recommendation?.rider) {
+    return `
+      <div class="dispatch-suggestion dispatch-suggestion-muted">
+        <strong>Sin repartidor sugerido</strong>
+        <span>Agrega repartidores para activar asignacion inteligente.</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="dispatch-suggestion">
+      <div>
+        <strong>${escapeHtml(recommendation.rider.name)}</strong>
+        <span>${escapeHtml(recommendation.sameZone ? "Misma zona" : `Fuera de zona: ${normalizeZoneName(recommendation.rider.zone)}`)} | ${escapeHtml(recommendation.reason)}</span>
+      </div>
+      <span class="dispatch-workload-pill">${recommendation.workload.activeCount} activos</span>
+    </div>
+  `;
+}
+
 function renderGestorHome() {
   const today = new Date().toISOString().slice(0, 10);
   const nonLocal = ordersCache.filter((o) => o.channel !== "local");
@@ -6522,8 +6614,8 @@ function renderGestorHome() {
   const scopedOrders = getOrdersByGestorZone(nonLocal, activeZoneFilter);
   const scopedRiders = getRidersByGestorZone(repartidoresCache, activeZoneFilter);
   const zoneLabel = activeZoneFilter === "all" ? "Todas las zonas" : activeZoneFilter;
-  const pendientes = sortByNewestId(scopedOrders.filter((o) => o.status === "pendiente"));
-  const enProceso = sortByNewestId(scopedOrders.filter((o) => !["pendiente", "entregado", "cancelado"].includes(o.status)));
+  const pendientes = sortGestorDispatchQueue(scopedOrders.filter((o) => o.status === "pendiente"));
+  const enProceso = sortGestorDispatchQueue(scopedOrders.filter((o) => !["pendiente", "entregado", "cancelado"].includes(o.status)));
   const sinAsignar = scopedOrders.filter((o) => !o.repartidorId && !["entregado", "cancelado"].includes(o.status));
   const enRuta = scopedOrders.filter((o) => ["asignado", "recibido", "en camino"].includes(String(o.status).toLowerCase()));
   const entregadosHoy = scopedOrders.filter((o) => o.date === today && String(o.status).toLowerCase().includes("entregado"));
@@ -6548,6 +6640,12 @@ function renderGestorHome() {
     enRuta,
     entregadosHoy,
     priorityOrders,
+  });
+  renderGestorDispatchCommandPanel({
+    pendientes,
+    scopedRiders,
+    activeZoneFilter,
+    zoneLabel,
   });
   renderGestorZoneOverviewPanel({
     nonLocal,
@@ -6648,6 +6746,96 @@ function renderGestorExecutivePanel({
   `;
 }
 
+function renderGestorDispatchCommandPanel({
+  pendientes,
+  scopedRiders,
+  activeZoneFilter,
+  zoneLabel,
+}) {
+  let dispatchCard = qs("#gestorDispatchCard");
+  if (!dispatchCard) {
+    dispatchCard = document.createElement("div");
+    dispatchCard.id = "gestorDispatchCard";
+    dispatchCard.className = "card card-spaced dispatch-command-card";
+    qs("#gestorExecutiveCard")?.insertAdjacentElement("afterend", dispatchCard);
+  }
+
+  const dispatchQueue = pendientes.slice(0, 4);
+  const ridersReady = scopedRiders.length || repartidoresCache.length;
+  const noGpsCount = pendientes.filter((order) => getOrderHighlightFlags(order).noGps).length;
+  const delayedCount = pendientes.filter((order) => getOrderHighlightFlags(order).delayed).length;
+
+  dispatchCard.innerHTML = `
+    <div class="executive-head">
+      <div>
+        <div class="card-title">Despacho inteligente</div>
+        <div class="card-secondary">${activeZoneFilter === "all" ? "Pedidos pendientes ordenados por urgencia, zona y senales operativas." : `Asignaciones sugeridas para ${escapeHtml(zoneLabel)} segun cobertura y carga activa.`}</div>
+      </div>
+      <div class="dispatch-command-badges">
+        <span class="estimate-badge">${pendientes.length} por asignar</span>
+        <span class="estimate-badge">${ridersReady} repartidores</span>
+      </div>
+    </div>
+    <div class="dispatch-health-grid">
+      <div class="dispatch-health-card">
+        <span>Sin GPS</span>
+        <strong>${noGpsCount}</strong>
+      </div>
+      <div class="dispatch-health-card">
+        <span>Atrasados</span>
+        <strong>${delayedCount}</strong>
+      </div>
+      <div class="dispatch-health-card">
+        <span>Listos para asignar</span>
+        <strong>${dispatchQueue.length}</strong>
+      </div>
+    </div>
+    <div class="dispatch-command-grid">
+      ${
+        dispatchQueue.length
+          ? dispatchQueue
+              .map((order) => {
+                const recommendation = getGestorRiderRecommendation(order);
+                const flags = getOrderHighlightFlags(order);
+                const zoneMeta = getGestorZoneValidationText(order, flags);
+                return `
+                  <article class="dispatch-command-item ${getGestorRowClass(order)}">
+                    <div class="dispatch-command-head">
+                      <div>
+                        <div class="gestor-mobile-id">Pedido #${order.id}</div>
+                        <h4>${escapeHtml(order.userName || "Cliente")}</h4>
+                      </div>
+                      ${renderStatusBadge(order.status)}
+                    </div>
+                    <div class="dispatch-command-meta">
+                      <span>${escapeHtml(order.zone || "--")}</span>
+                      <span>${escapeHtml(fmtDate(order.date))} ${escapeHtml(fmtTime(order.time))}</span>
+                      <span>${escapeHtml(zoneMeta)}</span>
+                    </div>
+                    <div class="signal-chip-row">${renderSignalChips(order)}</div>
+                    ${renderGestorRiderRecommendation(order, recommendation)}
+                    <div class="dispatch-command-actions">
+                      ${renderOrderOpsLinks(order, { compact: true })}
+                      ${
+                        recommendation?.rider
+                          ? `<button class="btn btn-primary btn-small" type="button" data-suggested-assign="${order.id}" data-rider-id="${recommendation.rider.id}">Asignar a ${escapeHtml(recommendation.rider.name)}</button>`
+                          : `<button class="btn btn-small btn-outline" type="button" disabled>Sin sugerencia</button>`
+                      }
+                      <button class="btn btn-small btn-outline" type="button" data-detalle="${order.id}">Detalle</button>
+                    </div>
+                  </article>
+                `;
+              })
+              .join("")
+          : `<div class="dispatch-empty">No hay pedidos pendientes en esta vista. La operacion esta despejada.</div>`
+      }
+    </div>
+  `;
+
+  bindGestorSuggestedAssignButtons(dispatchCard);
+  bindInvoiceAndDetailButtons(dispatchCard);
+}
+
 function renderGestorZoneOverviewPanel({
   nonLocal,
   scopedOrders,
@@ -6661,7 +6849,7 @@ function renderGestorZoneOverviewPanel({
     geoCard = document.createElement("div");
     geoCard.id = "gestorGeoCard";
     geoCard.className = "card card-spaced gestor-geo-card";
-    qs("#gestorExecutiveCard")?.insertAdjacentElement("afterend", geoCard);
+    (qs("#gestorDispatchCard") || qs("#gestorExecutiveCard"))?.insertAdjacentElement("afterend", geoCard);
   }
 
   const zoneCards = zoneList
@@ -6874,6 +7062,8 @@ function renderGestorAssignMobileCards(pendientes) {
       const reps = repsByZone.length ? repsByZone : repartidoresCache;
       const flags = getOrderHighlightFlags(order);
       const zoneMeta = getGestorZoneValidationText(order, flags);
+      const recommendation = getGestorRiderRecommendation(order);
+      const recommendedRiderId = recommendation?.rider?.id;
 
       return `
         <article class="gestor-mobile-card ${getGestorRowClass(order)}" data-assign-scope="${order.id}">
@@ -6898,11 +7088,12 @@ function renderGestorAssignMobileCards(pendientes) {
               <div class="gestor-mobile-sub">${flags.delayed ? "Fuera de hora programada" : "Programacion activa"}</div>
             </div>
           </div>
+          ${renderGestorRiderRecommendation(order, recommendation)}
           <div class="field-group gestor-mobile-field">
             <label>Asignar repartidor</label>
             <select data-assign="${order.id}">
               <option value="">Elegir...</option>
-              ${reps.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}${normalizeZoneName(r.zone) === normalizeZoneName(order.zone) ? "" : ` (${escapeHtml(normalizeZoneName(r.zone))})`}</option>`).join("")}
+              ${reps.map((r) => `<option value="${r.id}" ${String(r.id) === String(recommendedRiderId) ? "selected" : ""}>${escapeHtml(r.name)}${normalizeZoneName(r.zone) === normalizeZoneName(order.zone) ? "" : ` (${escapeHtml(normalizeZoneName(r.zone))})`}</option>`).join("")}
             </select>
           </div>
           <div class="gestor-mobile-actions">
@@ -6910,6 +7101,11 @@ function renderGestorAssignMobileCards(pendientes) {
             <button class="btn btn-small" data-factura="${order.id}">Factura</button>
             <button class="btn btn-small btn-outline" data-detalle="${order.id}">Detalle</button>
             <button class="btn btn-primary btn-small" data-save="${order.id}">Asignar</button>
+            ${
+              recommendedRiderId
+                ? `<button class="btn btn-small btn-outline" type="button" data-suggested-assign="${order.id}" data-rider-id="${recommendedRiderId}">Asignar sugerido</button>`
+                : ""
+            }
           </div>
         </article>
       `;
@@ -7038,6 +7234,8 @@ function renderGestorAssignTable({
     const tr = document.createElement("tr");
     const flags = getOrderHighlightFlags(o);
     const zoneMeta = getGestorZoneValidationText(o, flags);
+    const recommendation = getGestorRiderRecommendation(o);
+    const recommendedRiderId = recommendation?.rider?.id;
     tr.className = getGestorRowClass(o);
     tr.innerHTML = `
       <td>${o.id}</td>
@@ -7059,12 +7257,20 @@ function renderGestorAssignTable({
       <td>
         <select data-assign="${o.id}">
           <option value="">Elegir...</option>
-          ${reps.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}${normalizeZoneName(r.zone) === normalizeZoneName(o.zone) ? "" : ` (${escapeHtml(normalizeZoneName(r.zone))})`}</option>`).join("")}
+          ${reps.map((r) => `<option value="${r.id}" ${String(r.id) === String(recommendedRiderId) ? "selected" : ""}>${escapeHtml(r.name)}${normalizeZoneName(r.zone) === normalizeZoneName(o.zone) ? "" : ` (${escapeHtml(normalizeZoneName(r.zone))})`}</option>`).join("")}
         </select>
+        ${renderGestorRiderRecommendation(o, recommendation)}
       </td>
       <td><button class="btn btn-small" data-factura="${o.id}">Factura</button></td>
       <td><button class="btn btn-small btn-outline" data-detalle="${o.id}">Detalle</button></td>
-      <td><button class="btn btn-primary btn-small" data-save="${o.id}">Asignar</button></td>
+      <td>
+        <button class="btn btn-primary btn-small" data-save="${o.id}">Asignar</button>
+        ${
+          recommendedRiderId
+            ? `<button class="btn btn-small btn-outline dispatch-table-suggest" type="button" data-suggested-assign="${o.id}" data-rider-id="${recommendedRiderId}">Sugerido</button>`
+            : ""
+        }
+      </td>
     `;
     tr.setAttribute("data-assign-scope", o.id);
     tbody.appendChild(tr);
@@ -7072,6 +7278,8 @@ function renderGestorAssignTable({
 
   Array.from(tbody.querySelectorAll("[data-save]")).forEach((btn) => btn.addEventListener("click", gestorAssign));
   Array.from(mobileBoard?.querySelectorAll("[data-save]") || []).forEach((btn) => btn.addEventListener("click", gestorAssign));
+  bindGestorSuggestedAssignButtons(tbody);
+  bindGestorSuggestedAssignButtons(mobileBoard);
   bindInvoiceAndDetailButtons(tbody);
   bindInvoiceAndDetailButtons(mobileBoard);
 }
@@ -7172,6 +7380,35 @@ function renderGestorInProgressPanel({
   bindInvoiceAndDetailButtons(mobileBoard);
 }
 
+function bindGestorSuggestedAssignButtons(scope) {
+  if (!scope) return;
+
+  Array.from(scope.querySelectorAll("[data-suggested-assign]")).forEach((btn) => {
+    btn.addEventListener("click", gestorAssignSuggested);
+  });
+}
+
+async function gestorAssignSuggested(ev) {
+  const trigger = ev.currentTarget || ev.target;
+  const orderId = trigger?.dataset?.suggestedAssign;
+  const repartidorId = trigger?.dataset?.riderId;
+  if (!orderId || !repartidorId) {
+    showWarning("No hay sugerencia disponible para este pedido.");
+    return;
+  }
+
+  try {
+    setButtonBusy(trigger, true, "Asignando...");
+    const data = await apiPut(`/orders/${orderId}/assign`, { repartidorId: Number(repartidorId) });
+    showSuccess(`Pedido #${orderId} asignado a ${data.order?.repartidorName || "repartidor"}.`);
+    await loadAll();
+  } catch (err) {
+    showError(err.message || "No pudimos asignar el pedido sugerido.");
+  } finally {
+    setButtonBusy(trigger, false);
+  }
+}
+
 async function gestorAssign(ev) {
   const trigger = ev.currentTarget || ev.target;
   const orderId = trigger?.dataset?.save;
@@ -7184,11 +7421,14 @@ async function gestorAssign(ev) {
   }
 
   try {
+    setButtonBusy(trigger, true, "Asignando...");
     const data = await apiPut(`/orders/${orderId}/assign`, { repartidorId: Number(repartidorId) });
     showSuccess(`Pedido asignado a ${data.order?.repartidorName || "repartidor"}.`);
     await loadAll();
   } catch (err) {
     showError(err.message || "Error asignando");
+  } finally {
+    setButtonBusy(trigger, false);
   }
 }
 
