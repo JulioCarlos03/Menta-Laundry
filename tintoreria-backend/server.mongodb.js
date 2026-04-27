@@ -114,9 +114,14 @@ const ALLOWED_PRICING_MODES = ["por_libra", "por_prendas", "mixto"];
 const ASSIGNABLE_ORDER_STATUSES = new Set(["pendiente", "asignado"]);
 const CLIENT_CANCELLABLE_STATUSES = new Set(["pendiente", "asignado"]);
 const ORDER_STATUS_TRANSITIONS = {
-  asignado: ["recibido"],
-  recibido: ["en camino"],
-  "en camino": ["entregado"],
+  asignado: ["en camino a recoger"],
+  "en camino a recoger": ["recogido al cliente"],
+  "recogido al cliente": ["de camino al local"],
+  "de camino al local": ["recibido en local"],
+  "recibido en local": ["en tratamiento"],
+  "en tratamiento": ["listo para entrega"],
+  "listo para entrega": ["en camino a entregar"],
+  "en camino a entregar": ["entregado al cliente"],
 };
 const PHONE_REGEX = /^[0-9+\-\s()]{7,20}$/;
 const DELIVERY_PROOF_METHODS = new Set(["cliente", "porteria", "recepcion", "familiar", "otro"]);
@@ -157,12 +162,12 @@ function normalizeDeliveryCode(value) {
 
 function canExposeDeliveryCode(order, user) {
   const safeOrder = normalizeOrderForPublic(order) || {};
-  const status = asText(safeOrder.status).toLowerCase();
+  const status = normalizeRequestedStatus(safeOrder.status);
   return (
     user?.role === "cliente" &&
     Number(safeOrder.userId) === Number(user.id) &&
     safeOrder.channel === "domicilio" &&
-    !["entregado", "cancelado"].includes(status)
+    !["entregado al cliente", "cancelado"].includes(status)
   );
 }
 
@@ -530,7 +535,9 @@ function areValidStringItems(items, { max = 80 } = {}) {
 
 function normalizeRequestedStatus(value) {
   const status = asText(value).toLowerCase();
-  if (status === "camino") return "en camino";
+  if (status === "camino" || status === "en camino") return "en camino a entregar";
+  if (status === "recibido") return "recogido al cliente";
+  if (status === "entregado") return "entregado al cliente";
   return status;
 }
 
@@ -1121,7 +1128,7 @@ app.put(
       return res.status(400).json({ message: "Solo los pedidos a domicilio admiten este flujo." });
     }
 
-    if (!["recibido", "en camino", "entregado"].includes(normalizedStatus)) {
+    if (!Object.values(ORDER_STATUS_TRANSITIONS).flat().includes(normalizedStatus)) {
       return res.status(400).json({ message: "El estado solicitado no esta permitido para repartidor." });
     }
 
@@ -1136,7 +1143,7 @@ app.put(
     }
 
     let normalizedDeliveryProof = null;
-    if (normalizedStatus === "entregado") {
+    if (normalizedStatus === "entregado al cliente") {
       const proofResult = normalizeDeliveryProofInput(deliveryProof, req.user, order);
       if (proofResult.error) {
         return res.status(400).json({ message: proofResult.error });
@@ -1181,7 +1188,7 @@ app.put(
       return res.status(400).json({ message: "Solo puedes cancelar pedidos a domicilio." });
     }
 
-    if (order.status === "entregado" || order.status === "cancelado") {
+    if (normalizeRequestedStatus(order.status) === "entregado al cliente" || normalizeRequestedStatus(order.status) === "cancelado") {
       return res.status(400).json({ message: "No se puede cancelar este pedido." });
     }
 

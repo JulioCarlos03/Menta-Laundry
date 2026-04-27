@@ -201,7 +201,9 @@ function isValidTextField(value, { min = 1, max = 240, required = true } = {}) {
 
 function normalizeRequestedStatus(value) {
   const status = asText(value).toLowerCase();
-  if (status === "camino") return "en camino";
+  if (status === "camino" || status === "en camino") return "en camino a entregar";
+  if (status === "recibido") return "recogido al cliente";
+  if (status === "entregado") return "entregado al cliente";
   return status;
 }
 
@@ -225,7 +227,7 @@ function buildDeliveryCode(order) {
 function withDeliveryCode(order) {
   if (!order || order.channel !== "domicilio") return order;
   const status = normalizeRequestedStatus(order.status);
-  if (["entregado", "cancelado"].includes(status)) {
+  if (["entregado al cliente", "cancelado"].includes(status)) {
     const { deliveryCode, ...safe } = order;
     return safe;
   }
@@ -440,7 +442,7 @@ app.put("/api/orders/:id/status", (req, res) => {
   if (!status) return res.status(400).json({ message: "Falta el estado" });
 
   let normalizedDeliveryProof = null;
-  if (normalizedStatus === "entregado") {
+  if (normalizedStatus === "entregado al cliente") {
     const proofResult = normalizeDeliveryProofInput(deliveryProof, order);
     if (proofResult.error) {
       return res.status(400).json({ message: proofResult.error });
@@ -470,7 +472,7 @@ app.put("/api/orders/:id/cancel", (req, res) => {
   const order = orders.find((o) => o.id === orderId);
   if (!order) return res.status(404).json({ message: "Pedido no encontrado" });
 
-  if (order.status === "entregado" || order.status === "cancelado") {
+  if (normalizeRequestedStatus(order.status) === "entregado al cliente" || normalizeRequestedStatus(order.status) === "cancelado") {
     return res.status(400).json({ message: "No se puede cancelar este pedido." });
   }
 

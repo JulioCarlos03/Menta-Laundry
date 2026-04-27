@@ -654,10 +654,9 @@ function formatDeliveryProofDate(proof) {
 }
 
 function getDeliveryCode(order) {
-  const status = String(order?.status || "").toLowerCase();
   const code = String(order?.deliveryCode || "").replace(/\D/g, "");
   if (currentUser?.role !== "cliente") return "";
-  if (["entregado", "cancelado"].includes(status)) return "";
+  if (isClosedOrderStatus(order?.status)) return "";
   return code.length === 6 ? code : "";
 }
 
@@ -675,6 +674,142 @@ function renderDeliveryCodeCard(order, options = {}) {
       </div>
       <small>Solo compartelo cuando recibas tus prendas. El repartidor no puede cerrar la entrega sin este PIN.</small>
     </div>
+  `;
+}
+
+const CLIENT_TRACKING_STEPS = [
+  {
+    key: "pendiente",
+    label: "Solicitud",
+    emoji: "🧾",
+    title: "Solicitud recibida",
+    copy: "Tu servicio ya esta en la bandeja de Menta Laundry.",
+    scene: "paper",
+  },
+  {
+    key: "asignado",
+    label: "Asignado",
+    emoji: "🧑‍💼",
+    title: "Agente asignado",
+    copy: "Un agente ya coordina tu servicio y prepara la ruta.",
+    scene: "agent",
+  },
+  {
+    key: "en camino a recoger",
+    label: "A recoger",
+    emoji: "🚚",
+    title: "En camino al cliente",
+    copy: "La guaguita va hacia tu direccion para recoger las prendas.",
+    scene: "truck",
+  },
+  {
+    key: "recogido al cliente",
+    label: "Recogido",
+    emoji: "🚚✅",
+    title: "Ropa recogida",
+    copy: "Tus prendas ya fueron recibidas por el equipo de ruta.",
+    scene: "truck-check",
+  },
+  {
+    key: "de camino al local",
+    label: "Al local",
+    emoji: "🚚",
+    title: "De camino al local",
+    copy: "La ropa va camino al local para iniciar el proceso.",
+    scene: "truck",
+  },
+  {
+    key: "recibido en local",
+    label: "En local",
+    emoji: "🏪",
+    title: "Recibido en local",
+    copy: "El equipo de Menta Laundry ya recibio las prendas.",
+    scene: "shop",
+  },
+  {
+    key: "en tratamiento",
+    label: "Tratamiento",
+    emoji: "🧺✨",
+    title: "En tratamiento textil",
+    copy: "Lavado, planchado o cuidado especial en proceso.",
+    scene: "wash",
+  },
+  {
+    key: "listo para entrega",
+    label: "Listo",
+    emoji: "🏪✨",
+    title: "Listo para entrega",
+    copy: "Tus prendas estan listas para salir nuevamente.",
+    scene: "shop-ready",
+  },
+  {
+    key: "en camino a entregar",
+    label: "En entrega",
+    emoji: "🚚",
+    title: "En camino al cliente",
+    copy: "La guaguita va de regreso con tu pedido.",
+    scene: "truck",
+  },
+  {
+    key: "entregado al cliente",
+    label: "Entregado",
+    emoji: "😊",
+    title: "Entregado al cliente",
+    copy: "Servicio completado. Gracias por confiar en Menta Laundry.",
+    scene: "happy",
+  },
+];
+
+function getClientTrackingStep(order) {
+  const status = normalizeStatusValue(order?.status);
+  return CLIENT_TRACKING_STEPS.find((step) => step.key === status) || CLIENT_TRACKING_STEPS[0];
+}
+
+function renderClientTrackingExperience(order, options = {}) {
+  if (!order) return "";
+
+  const currentStatus = normalizeStatusValue(order.status);
+  const currentIndex = Math.max(
+    CLIENT_TRACKING_STEPS.findIndex((step) => step.key === currentStatus),
+    0
+  );
+  const currentStep = CLIENT_TRACKING_STEPS[currentIndex] || CLIENT_TRACKING_STEPS[0];
+  const compactClass = options.compact ? " client-tracking-compact" : "";
+  const progressWidth = CLIENT_TRACKING_STEPS.length > 1
+    ? (currentIndex / (CLIENT_TRACKING_STEPS.length - 1)) * 100
+    : 0;
+
+  return `
+    <section class="client-tracking${compactClass}" aria-label="Seguimiento animado del pedido">
+      <div class="client-tracking-scene client-tracking-scene-${escapeHtml(currentStep.scene)}">
+        <div class="client-tracking-emoji" aria-hidden="true">${currentStep.emoji}</div>
+        <div>
+          <span>${escapeHtml(formatStatusLabel(currentStep.key))}</span>
+          <strong>${escapeHtml(currentStep.title)}</strong>
+          <small>${escapeHtml(currentStep.copy)}</small>
+        </div>
+      </div>
+      <div class="client-tracking-line-wrap">
+        <div class="client-tracking-rail" aria-hidden="true">
+          <span style="width:${progressWidth}%;"></span>
+        </div>
+        <div class="client-tracking-steps">
+          ${CLIENT_TRACKING_STEPS.map((step, index) => {
+            const className = [
+              "client-tracking-step",
+              index < currentIndex ? "is-done" : "",
+              index === currentIndex ? "is-active" : "",
+            ].filter(Boolean).join(" ");
+            return `
+              <div class="${className}">
+                <b>${step.emoji}</b>
+                <span>${escapeHtml(step.label)}</span>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    </section>
   `;
 }
 
@@ -754,7 +889,7 @@ function ensureDeliveryProofDialog() {
       </div>
       <div class="delivery-proof-actions">
         <button type="button" class="confirm-dialog-btn confirm-dialog-btn-secondary" data-delivery-proof-action="cancel">Volver</button>
-        <button type="submit" class="confirm-dialog-btn confirm-dialog-btn-primary">Cerrar como entregado</button>
+        <button type="submit" class="confirm-dialog-btn confirm-dialog-btn-primary">Entregado al cliente</button>
       </div>
     </form>
   `;
@@ -885,9 +1020,23 @@ function formatRoleLabel(role) {
 function formatStatusLabel(status) {
   const raw = String(status || "").trim();
   const s = raw.toLowerCase();
+  const labels = {
+    pendiente: "Pendiente",
+    asignado: "Asignado",
+    "en camino a recoger": "En camino a recoger",
+    "recogido al cliente": "Recogido al cliente",
+    "de camino al local": "De camino al local",
+    "recibido en local": "Recibido en local",
+    "en tratamiento": "En tratamiento",
+    "listo para entrega": "Listo para entrega",
+    "en camino a entregar": "En camino a entregar",
+    "entregado al cliente": "Entregado al cliente",
+    cancelado: "Cancelado",
+  };
   if (!raw) return "Sin estado";
+  if (labels[s]) return labels[s];
   if (s.includes("cancel")) return "Cancelado";
-  if (s.includes("entregado")) return "Entregado";
+  if (s.includes("entregado")) return "Entregado al cliente";
   if (s.includes("camino")) return "En camino";
   if (s.includes("recibido")) return "Recibido";
   if (s.includes("pendiente")) return "Pendiente";
@@ -896,10 +1045,11 @@ function formatStatusLabel(status) {
 }
 
 function getStatusTone(status) {
-  const s = String(status || "").toLowerCase();
+  const s = normalizeStatusValue(status);
   if (s.includes("cancel")) return "status-cancelled";
-  if (s.includes("entregado")) return "status-delivered";
-  if (s.includes("camino") || s.includes("recibido") || s.includes("asignado")) return "status-progress";
+  if (s === "entregado al cliente") return "status-delivered";
+  if (["recibido en local", "en tratamiento", "listo para entrega"].includes(s)) return "status-progress";
+  if (s.includes("camino") || s.includes("recogido") || s.includes("asignado")) return "status-progress";
   if (s.includes("pendiente")) return "status-pending";
   return "status-empty";
 }
@@ -968,8 +1118,8 @@ function updateDashboardHero() {
   const localToday = localOrdersCache.filter((o) => o.date === today);
 
   if (currentUser.role === "cliente") {
-    const active = clientOrders.filter((o) => !["entregado", "cancelado"].includes(o.status));
-    const delivered = clientOrders.filter((o) => String(o.status).toLowerCase().includes("entregado"));
+    const active = clientOrders.filter((o) => !isClosedOrderStatus(o.status));
+    const delivered = clientOrders.filter((o) => isFinalDeliveryStatus(o.status));
     setHeroStat(1, "Pedidos", String(clientOrders.length));
     setHeroStat(2, "Activos", String(active.length));
     setHeroStat(3, "Entregados", String(delivered.length));
@@ -979,7 +1129,7 @@ function updateDashboardHero() {
 
   if (currentUser.role === "gestor") {
     const pending = ordersCache.filter((o) => o.channel !== "local" && o.status === "pendiente");
-    const active = ordersCache.filter((o) => o.channel !== "local" && !["entregado", "cancelado"].includes(o.status));
+    const active = ordersCache.filter((o) => o.channel !== "local" && !isClosedOrderStatus(o.status));
     setHeroStat(1, "Pendientes", String(pending.length));
     setHeroStat(2, "Activos", String(active.length));
     setHeroStat(3, "Rutas", String(repartidoresCache.length));
@@ -990,7 +1140,7 @@ function updateDashboardHero() {
   if (currentUser.role === "repartidor") {
     const assigned = ordersCache.filter((o) => o.repartidorId === currentUser.id);
     const todayCount = assigned.filter((o) => o.date === today);
-    const delivered = assigned.filter((o) => String(o.status).toLowerCase().includes("entregado"));
+    const delivered = assigned.filter((o) => isFinalDeliveryStatus(o.status));
     setHeroStat(1, "Asignados", String(assigned.length));
     setHeroStat(2, "Hoy", String(todayCount.length));
     setHeroStat(3, "Entregados", String(delivered.length));
@@ -1429,17 +1579,35 @@ function fmtTime(isoOrTime) {
 /* ============================================================
    STATUS RULES (frontend extra; backend ya valida)
 ============================================================ */
-const STATUS_FLOW = ["pendiente", "asignado", "recibido", "en camino", "entregado"];
+const STATUS_FLOW = [
+  "pendiente",
+  "asignado",
+  "en camino a recoger",
+  "recogido al cliente",
+  "de camino al local",
+  "recibido en local",
+  "en tratamiento",
+  "listo para entrega",
+  "en camino a entregar",
+  "entregado al cliente",
+];
 const ALLOWED_STATUS_TRANSITIONS = {
   pendiente: ["asignado"],
-  asignado: ["recibido"],
-  recibido: ["en camino"],
-  "en camino": ["entregado"],
+  asignado: ["en camino a recoger"],
+  "en camino a recoger": ["recogido al cliente"],
+  "recogido al cliente": ["de camino al local"],
+  "de camino al local": ["recibido en local"],
+  "recibido en local": ["en tratamiento"],
+  "en tratamiento": ["listo para entrega"],
+  "listo para entrega": ["en camino a entregar"],
+  "en camino a entregar": ["entregado al cliente"],
 };
 
 function normalizeStatusValue(status) {
   const s = String(status || "").trim().toLowerCase();
-  if (s === "camino") return "en camino";
+  if (s === "camino" || s === "en camino") return "en camino a entregar";
+  if (s === "recibido") return "recogido al cliente";
+  if (s === "entregado") return "entregado al cliente";
   return s;
 }
 
@@ -1456,12 +1624,39 @@ function canMoveTo(currentStatus, targetStatus) {
   return (ALLOWED_STATUS_TRANSITIONS[current] || []).includes(target);
 }
 
+function isFinalDeliveryStatus(status) {
+  return normalizeStatusValue(status) === "entregado al cliente";
+}
+
+function isCancelledStatus(status) {
+  return normalizeStatusValue(status).includes("cancel");
+}
+
+function isClosedOrderStatus(status) {
+  return isFinalDeliveryStatus(status) || isCancelledStatus(status);
+}
+
+function isOperationalActiveStatus(status) {
+  const value = normalizeStatusValue(status);
+  return Boolean(value) && !["pendiente", "entregado al cliente", "cancelado"].includes(value);
+}
+
+function isRiderRouteStatus(status) {
+  return [
+    "asignado",
+    "en camino a recoger",
+    "recogido al cliente",
+    "de camino al local",
+    "en camino a entregar",
+  ].includes(normalizeStatusValue(status));
+}
+
 /* ============================================================
    CANCEL WINDOW (5 min)
 ============================================================ */
 function canCancel(order) {
   if (!order || !order.createdAt) return false;
-  if (order.status === "entregado" || order.status === "cancelado") return false;
+  if (isClosedOrderStatus(order.status)) return false;
   const diff = Date.now() - new Date(order.createdAt).getTime();
   return diff <= 5 * 60 * 1000;
 }
@@ -2549,8 +2744,8 @@ function getClientVerificationBadgeMarkup() {
 
 function buildClientOrderStats(clientOrders) {
   const my = sortByNewestId(clientOrders);
-  const activeOrders = my.filter((order) => !["entregado", "cancelado"].includes(String(order.status || "").toLowerCase()));
-  const delivered = my.filter((order) => String(order.status || "").toLowerCase().includes("entregado"));
+  const activeOrders = my.filter((order) => !isClosedOrderStatus(order.status));
+  const delivered = my.filter((order) => isFinalDeliveryStatus(order.status));
   const cancelled = my.filter((order) => String(order.status || "").toLowerCase().includes("cancel"));
   const favoriteCounts = new Map();
   let estimatedRevenue = 0;
@@ -2590,7 +2785,7 @@ function getClientActivityFilters(stats) {
 function getFilteredClientOrders(stats, filterKey) {
   const normalized = String(filterKey || "all").toLowerCase();
   if (normalized === "active") {
-    return stats.my.filter((order) => !["entregado", "cancelado"].includes(String(order.status || "").toLowerCase()));
+    return stats.my.filter((order) => !isClosedOrderStatus(order.status));
   }
   if (normalized === "delivered") return stats.delivered;
   if (normalized === "cancelled") return stats.cancelled;
@@ -2716,6 +2911,7 @@ function renderClientHome() {
             </div>
           </div>
           <div class="signal-chip-row">${renderSignalChips(active)}</div>
+          ${renderClientTrackingExperience(active)}
           <div class="home-focus-grid">
             <div class="home-focus-item">
               <span>Agenda</span>
@@ -3093,6 +3289,7 @@ function renderClientActivity() {
         <div class="activity-focus-note">
           ${escapeHtml(getOrderLatestMovementText(featuredOrder))}. ${escapeHtml(featuredOrder.repartidorName ? `Repartidor asignado: ${featuredOrder.repartidorName}.` : "Asignacion pendiente por el equipo.")}
         </div>
+        ${renderClientTrackingExperience(featuredOrder, { compact: true })}
         ${renderDeliveryCodeCard(featuredOrder, { compact: true })}
         <div class="timeline-actions activity-focus-actions">
           <button class="btn btn-small" data-factura="${featuredOrder.id}">Factura</button>
@@ -3183,9 +3380,9 @@ function renderClientActivity() {
         : "Monto por confirmar"
       : money(breakdown.total);
     const serviceMoment = [fmtDate(o.date), fmtTime(o.time)].filter(Boolean).join(" | ");
-    const stateClass = String(o.status || "").toLowerCase().includes("entregado")
+    const stateClass = isFinalDeliveryStatus(o.status)
       ? "timeline-item-complete"
-      : String(o.status || "").toLowerCase().includes("cancel")
+      : isCancelledStatus(o.status)
         ? "timeline-item-cancelled"
         : "timeline-item-active";
     const li = document.createElement("li");
@@ -3220,6 +3417,7 @@ function renderClientActivity() {
           <strong>${escapeHtml(o.address || "Direccion pendiente")}</strong>
           <span>${escapeHtml(flags.hasGps ? `Ubicacion valida para ${location?.inferredZone || o.zone || "tu zona"}` : "Sin punto GPS registrado. Seguimos usando la direccion escrita.")}</span>
         </div>
+        ${renderClientTrackingExperience(o, { compact: true })}
         ${renderDeliveryCodeCard(o, { compact: true })}
         <div class="timeline-history-note">
           <span>Ultimo movimiento</span>
@@ -3557,8 +3755,7 @@ async function repartidorUpdateStatus(ev) {
   if (!order) return;
 
   const lbs = parseFloat(qs(`[data-lbs="${orderId}"]`)?.value || "0");
-  const map = { recibido: "recibido", camino: "en camino", entregado: "entregado" };
-  const targetStatus = map[state];
+  const targetStatus = normalizeStatusValue(state);
 
   if (!canMoveTo(order.status, targetStatus)) {
     showWarning("Ese cambio no sigue el flujo de ruta.");
@@ -3566,7 +3763,7 @@ async function repartidorUpdateStatus(ev) {
   }
 
   let deliveryProof = null;
-  if (targetStatus === "entregado") {
+  if (targetStatus === "entregado al cliente") {
     deliveryProof = await showDeliveryProofDialog(order);
     if (!deliveryProof) return;
   }
@@ -5074,12 +5271,14 @@ function renderOrderOpsLinks(order, options = {}) {
 }
 
 function getRiderPriority(order, index) {
-  const status = String(order?.status || "").toLowerCase();
-  if (status.includes("cancel")) return { label: "Cancelado", tone: "rider-priority-base" };
-  if (status.includes("entregado")) return { label: "Completado", tone: "rider-priority-done" };
-  if (status.includes("camino")) return { label: "Entrega en curso", tone: "rider-priority-live" };
+  const status = normalizeStatusValue(order?.status);
+  if (isCancelledStatus(status)) return { label: "Cancelado", tone: "rider-priority-base" };
+  if (isFinalDeliveryStatus(status)) return { label: "Completado", tone: "rider-priority-done" };
+  if (status.includes("camino")) return { label: status.includes("local") ? "Camino al local" : "Ruta en curso", tone: "rider-priority-live" };
+  if (status === "recibido en local" || status === "en tratamiento") return { label: "Proceso interno", tone: "rider-priority-soon" };
+  if (status === "listo para entrega") return { label: "Listo para ruta final", tone: "rider-priority-soon" };
   if (index === 0) return { label: "Siguiente parada", tone: "rider-priority-next" };
-  if (status.includes("recibido")) return { label: "Listo para entregar", tone: "rider-priority-soon" };
+  if (status.includes("recogido")) return { label: "Ir al local", tone: "rider-priority-soon" };
   return { label: "Pendiente de atender", tone: "rider-priority-base" };
 }
 
@@ -5090,10 +5289,32 @@ function getRiderNextStatus(order) {
 
 function getRiderNextActionLabel(order) {
   const nextStatus = getRiderNextStatus(order);
-  if (nextStatus === "recibido") return "Marcar recibido";
-  if (nextStatus === "en camino") return "Iniciar entrega";
-  if (nextStatus === "entregado") return "Cerrar entrega";
+  const labels = {
+    "en camino a recoger": "Ir a recoger",
+    "recogido al cliente": "Confirmar recogida",
+    "de camino al local": "De camino al local",
+    "recibido en local": "Recibido en local",
+    "en tratamiento": "Iniciar tratamiento",
+    "listo para entrega": "Listo para entrega",
+    "en camino a entregar": "Salir a entregar",
+    "entregado al cliente": "Cerrar con PIN",
+  };
+  if (labels[nextStatus]) return labels[nextStatus];
   return "Sin accion pendiente";
+}
+
+function renderRiderStateActions(order) {
+  const nextStatus = getRiderNextStatus(order);
+  if (!nextStatus) {
+    return `<button class="btn btn-small btn-outline" type="button" disabled>Sin siguiente estado</button>`;
+  }
+
+  const primaryClass = nextStatus === "entregado al cliente" ? "btn-primary" : "";
+  return `
+    <button class="btn btn-small ${primaryClass}" data-state="${escapeHtml(nextStatus)}" data-id="${order.id}">
+      ${escapeHtml(getRiderNextActionLabel(order))}
+    </button>
+  `;
 }
 
 function renderRiderProgress(order) {
@@ -5101,9 +5322,14 @@ function renderRiderProgress(order) {
   const currentStatus = normalizeStatusValue(order?.status);
   const steps = [
     { key: "asignado", label: "Asignado" },
-    { key: "recibido", label: "Recibido" },
-    { key: "en camino", label: "En camino" },
-    { key: "entregado", label: "Entregado" },
+    { key: "en camino a recoger", label: "A recoger" },
+    { key: "recogido al cliente", label: "Recogido" },
+    { key: "de camino al local", label: "Al local" },
+    { key: "recibido en local", label: "En local" },
+    { key: "en tratamiento", label: "Tratamiento" },
+    { key: "listo para entrega", label: "Listo" },
+    { key: "en camino a entregar", label: "A entregar" },
+    { key: "entregado al cliente", label: "Entregado" },
   ];
 
   return `
@@ -5287,8 +5513,7 @@ function getOrderServiceTimestamp(order) {
 }
 
 function isOrderDelayed(order) {
-  const status = String(order?.status || "").toLowerCase();
-  if (["entregado", "cancelado"].some((value) => status.includes(value))) return false;
+  if (isClosedOrderStatus(order?.status)) return false;
 
   const serviceTimestamp = getOrderServiceTimestamp(order);
   if (!Number.isFinite(serviceTimestamp)) return false;
@@ -5776,8 +6001,18 @@ function compareByServiceMoment(a, b) {
 
 function buildRiderRoutePlan(orders) {
   const routeOrigin = getRiderRouteOrigin();
-  const active = orders.filter((order) => !["entregado", "cancelado"].some((value) => String(order.status || "").toLowerCase().includes(value)));
-  const done = orders.filter((order) => ["entregado", "cancelado"].some((value) => String(order.status || "").toLowerCase().includes(value)));
+  const active = orders.filter((order) => isRiderRouteStatus(order.status));
+  const waiting = orders
+    .filter((order) => !isRiderRouteStatus(order.status) && !isClosedOrderStatus(order.status))
+    .sort(compareByServiceMoment)
+    .map((order) => ({
+      order,
+      stopNumber: null,
+      routeType: "interno",
+      distanceFromPreviousKm: null,
+      distanceLabel: "Proceso interno o preparacion para la siguiente ruta.",
+    }));
+  const done = orders.filter((order) => isClosedOrderStatus(order.status));
 
   const withGps = active.filter((order) => getOrderLocation(order));
   const withoutGps = active.filter((order) => !getOrderLocation(order)).sort(compareByServiceMoment);
@@ -5840,6 +6075,7 @@ function buildRiderRoutePlan(orders) {
   return {
     routeOrigin,
     active: orderedActive,
+    waiting,
     done: orderedDone,
     gpsCount: withGps.length,
     noGpsCount: withoutGps.length,
@@ -6239,8 +6475,8 @@ function updateDashboardHero() {
   const localToday = localOrdersCache.filter((o) => o.date === today);
 
   if (currentUser.role === "cliente") {
-    const active = clientOrders.filter((o) => !["entregado", "cancelado"].includes(o.status));
-    const delivered = clientOrders.filter((o) => String(o.status).toLowerCase().includes("entregado"));
+    const active = clientOrders.filter((o) => !isClosedOrderStatus(o.status));
+    const delivered = clientOrders.filter((o) => isFinalDeliveryStatus(o.status));
     setHeroStat(1, "Pedidos", String(clientOrders.length));
     setHeroStat(2, "Activos", String(active.length));
     setHeroStat(3, "Entregados", String(delivered.length));
@@ -6250,7 +6486,7 @@ function updateDashboardHero() {
 
   if (currentUser.role === "gestor") {
     const pending = ordersCache.filter((o) => o.channel !== "local" && o.status === "pendiente");
-    const active = ordersCache.filter((o) => o.channel !== "local" && !["entregado", "cancelado"].includes(o.status));
+    const active = ordersCache.filter((o) => o.channel !== "local" && !isClosedOrderStatus(o.status));
     setHeroStat(1, "Pendientes", String(pending.length));
     setHeroStat(2, "Activos", String(active.length));
     setHeroStat(3, "Rutas", String(repartidoresCache.length));
@@ -6261,7 +6497,7 @@ function updateDashboardHero() {
   if (currentUser.role === "repartidor") {
     const assigned = ordersCache.filter((o) => Number(o.repartidorId) === Number(currentUser.id));
     const todayCount = assigned.filter((o) => o.date === today);
-    const delivered = assigned.filter((o) => String(o.status).toLowerCase().includes("entregado"));
+    const delivered = assigned.filter((o) => isFinalDeliveryStatus(o.status));
     setHeroStat(1, "Asignados", String(assigned.length));
     setHeroStat(2, "Hoy", String(todayCount.length));
     setHeroStat(3, "Entregados", String(delivered.length));
@@ -6604,10 +6840,10 @@ function renderGestorHome() {
   const today = new Date().toISOString().slice(0, 10);
   const nonLocal = ordersCache.filter((o) => o.channel !== "local");
   const pendientes = sortByNewestId(nonLocal.filter((o) => o.status === "pendiente"));
-  const enProceso = sortByNewestId(nonLocal.filter((o) => !["pendiente", "entregado", "cancelado"].includes(o.status)));
-  const sinAsignar = nonLocal.filter((o) => !o.repartidorId && !["entregado", "cancelado"].includes(o.status));
-  const enRuta = nonLocal.filter((o) => ["asignado", "recibido", "en camino"].includes(String(o.status).toLowerCase()));
-  const entregadosHoy = nonLocal.filter((o) => o.date === today && String(o.status).toLowerCase().includes("entregado"));
+  const enProceso = sortByNewestId(nonLocal.filter((o) => isOperationalActiveStatus(o.status)));
+  const sinAsignar = nonLocal.filter((o) => !o.repartidorId && !isClosedOrderStatus(o.status));
+  const enRuta = nonLocal.filter((o) => isRiderRouteStatus(o.status));
+  const entregadosHoy = nonLocal.filter((o) => o.date === today && isFinalDeliveryStatus(o.status));
   const zoneList = Array.from(new Set([...Object.keys(ZONE_CENTERS), ...nonLocal.map((o) => String(o.zone || "").trim()).filter(Boolean), ...repartidoresCache.map((r) => String(r.zone || "").trim()).filter(Boolean)]));
   const getOrderUrgencyScore = (order) => {
     const flags = getOrderHighlightFlags(order);
@@ -6617,7 +6853,7 @@ function renderGestorHome() {
     if (flags.noGps) score += 4;
     if (!order.repartidorId) score += 3;
     if (status === "pendiente") score += 2;
-    if (status === "en camino") score += 1;
+    if (normalizeStatusValue(status).includes("camino")) score += 1;
     return score;
   };
 
@@ -6635,7 +6871,7 @@ function renderGestorHome() {
   }
 
   const priorityOrders = [...nonLocal]
-    .filter((o) => !["entregado", "cancelado"].includes(String(o.status).toLowerCase()))
+    .filter((o) => !isClosedOrderStatus(o.status))
     .sort((a, b) => {
       const scoreDiff = getOrderUrgencyScore(b) - getOrderUrgencyScore(a);
       if (scoreDiff) return scoreDiff;
@@ -6708,12 +6944,12 @@ function renderGestorHome() {
   const zoneCards = zoneList.map((zone) => {
     const activeOrders = nonLocal.filter((o) => {
       const status = String(o.status || "").toLowerCase();
-      return (String(o.zone || "").trim() || "Distrito Nacional") === zone && !["entregado", "cancelado"].includes(status);
+      return (String(o.zone || "").trim() || "Distrito Nacional") === zone && !isClosedOrderStatus(status);
     });
     const gpsCount = activeOrders.filter((o) => getOrderHighlightFlags(o).hasGps).length;
     const noGpsCount = activeOrders.filter((o) => getOrderHighlightFlags(o).noGps).length;
     const delayedCount = activeOrders.filter((o) => getOrderHighlightFlags(o).delayed).length;
-    const routeCount = activeOrders.filter((o) => ["asignado", "recibido", "en camino"].includes(String(o.status || "").toLowerCase())).length;
+    const routeCount = activeOrders.filter((o) => isRiderRouteStatus(o.status)).length;
     const zoneRiders = repartidoresCache.filter((r) => (String(r.zone || "").trim() || "Distrito Nacional") === zone);
     const hotOrders = [...activeOrders]
       .sort((a, b) => {
@@ -6905,13 +7141,13 @@ function renderGestorHome() {
 
 function getGestorOrderUrgencyScore(order) {
   const flags = getOrderHighlightFlags(order);
-  const status = String(order?.status || "").toLowerCase();
+  const status = normalizeStatusValue(order?.status);
   let score = 0;
   if (flags.delayed) score += 10;
   if (flags.noGps) score += 4;
   if (!order?.repartidorId) score += 3;
   if (status === "pendiente") score += 2;
-  if (status === "en camino") score += 1;
+  if (status.includes("camino")) score += 1;
   return score;
 }
 
@@ -6926,7 +7162,7 @@ function sortGestorDispatchQueue(orders) {
 }
 
 function isActiveRouteOrder(order) {
-  return ["asignado", "recibido", "en camino"].includes(normalizeStatusValue(order?.status));
+  return isRiderRouteStatus(order?.status);
 }
 
 function getRiderWorkload(rider, orders = ordersCache) {
@@ -7022,12 +7258,12 @@ function renderGestorHome() {
   const scopedRiders = getRidersByGestorZone(repartidoresCache, activeZoneFilter);
   const zoneLabel = activeZoneFilter === "all" ? "Todas las zonas" : activeZoneFilter;
   const pendientes = sortGestorDispatchQueue(scopedOrders.filter((o) => o.status === "pendiente"));
-  const enProceso = sortGestorDispatchQueue(scopedOrders.filter((o) => !["pendiente", "entregado", "cancelado"].includes(o.status)));
-  const sinAsignar = scopedOrders.filter((o) => !o.repartidorId && !["entregado", "cancelado"].includes(o.status));
-  const enRuta = scopedOrders.filter((o) => ["asignado", "recibido", "en camino"].includes(String(o.status).toLowerCase()));
-  const entregadosHoy = scopedOrders.filter((o) => o.date === today && String(o.status).toLowerCase().includes("entregado"));
+  const enProceso = sortGestorDispatchQueue(scopedOrders.filter((o) => isOperationalActiveStatus(o.status)));
+  const sinAsignar = scopedOrders.filter((o) => !o.repartidorId && !isClosedOrderStatus(o.status));
+  const enRuta = scopedOrders.filter((o) => isRiderRouteStatus(o.status));
+  const entregadosHoy = scopedOrders.filter((o) => o.date === today && isFinalDeliveryStatus(o.status));
   const priorityOrders = [...scopedOrders]
-    .filter((o) => !["entregado", "cancelado"].includes(String(o.status).toLowerCase()))
+    .filter((o) => !isClosedOrderStatus(o.status))
     .sort((a, b) => {
       const scoreDiff = getGestorOrderUrgencyScore(b) - getGestorOrderUrgencyScore(a);
       if (scoreDiff) return scoreDiff;
@@ -7263,12 +7499,12 @@ function renderGestorZoneOverviewPanel({
     .map((zone) => {
       const activeOrders = nonLocal.filter((o) => {
         const status = String(o.status || "").toLowerCase();
-        return normalizeZoneName(o.zone) === zone && !["entregado", "cancelado"].includes(status);
+        return normalizeZoneName(o.zone) === zone && !isClosedOrderStatus(status);
       });
       const gpsCount = activeOrders.filter((o) => getOrderHighlightFlags(o).hasGps).length;
       const noGpsCount = activeOrders.filter((o) => getOrderHighlightFlags(o).noGps).length;
       const delayedCount = activeOrders.filter((o) => getOrderHighlightFlags(o).delayed).length;
-      const routeCount = activeOrders.filter((o) => ["asignado", "recibido", "en camino"].includes(String(o.status || "").toLowerCase())).length;
+      const routeCount = activeOrders.filter((o) => isRiderRouteStatus(o.status)).length;
       const zoneRiders = repartidoresCache.filter((r) => normalizeZoneName(r.zone) === zone);
       const hotOrders = [...activeOrders]
         .sort((a, b) => {
@@ -7381,7 +7617,7 @@ function renderGestorRiderCoveragePanel({
 
   const riderCoverageMarkup = scopedRiders
     .map((rider) => {
-      const riderOrders = scopedOrders.filter((order) => Number(order.repartidorId) === Number(rider.id) && !["entregado", "cancelado"].includes(String(order.status || "").toLowerCase()));
+      const riderOrders = scopedOrders.filter((order) => Number(order.repartidorId) === Number(rider.id) && !isClosedOrderStatus(order.status));
       const gpsReady = riderOrders.filter((order) => getOrderHighlightFlags(order).hasGps).length;
       const delayedCount = riderOrders.filter((order) => getOrderHighlightFlags(order).delayed).length;
       const noGpsCount = riderOrders.filter((order) => getOrderHighlightFlags(order).noGps).length;
@@ -7392,7 +7628,7 @@ function renderGestorRiderCoveragePanel({
           return compareByServiceMoment(a, b);
         })[0];
       const riderState = riderOrders.length
-        ? riderOrders.some((order) => String(order.status || "").toLowerCase().includes("camino"))
+        ? riderOrders.some((order) => normalizeStatusValue(order.status).includes("camino"))
           ? "En calle"
           : "Con ruta"
         : "Disponible";
@@ -7885,11 +8121,11 @@ function renderGestorLocal() {
 function renderRepartidorHome() {
   const assigned = ordersCache.filter((o) => Number(o.repartidorId) === Number(currentUser.id));
   const routePlan = buildRiderRoutePlan(assigned);
-  const orderedCards = [...routePlan.active, ...routePlan.done];
+  const orderedCards = [...routePlan.active, ...routePlan.waiting, ...routePlan.done];
   const today = new Date().toISOString().slice(0, 10);
   const todayCount = assigned.filter((o) => o.date === today).length;
-  const delivered = assigned.filter((o) => String(o.status).toLowerCase().includes("entregado"));
-  const inRoute = assigned.filter((o) => ["asignado", "recibido", "en camino"].includes(String(o.status).toLowerCase()));
+  const delivered = assigned.filter((o) => isFinalDeliveryStatus(o.status));
+  const inRoute = assigned.filter((o) => isRiderRouteStatus(o.status));
   const withNotes = assigned.filter((o) => String(o.notes || "").trim()).length;
   const withGps = assigned.filter((o) => getOrderLocation(o)).length;
   const pendingWeight = assigned.filter((o) => getRiderChargeSummary(o).weightPending).length;
@@ -8018,7 +8254,7 @@ function renderRepartidorHome() {
         const zoneDistance = getOrderDistanceFromZone(order);
         const geoLabel = getGeoStatusLabel(order);
         const isFallbackContact = contactPhone === BUSINESS_PROFILE.phone && (!String(order.phone || "").trim() || String(order.phone || "").trim().toLowerCase() === "x");
-        const stopBadge = entry.stopNumber ? `Parada ${entry.stopNumber}` : "Completado";
+        const stopBadge = entry.stopNumber ? `Parada ${entry.stopNumber}` : entry.routeType === "interno" ? "Proceso" : "Completado";
         const charge = getRiderChargeSummary(order);
         const nextActionLabel = getRiderNextActionLabel(order);
         const cardClass = [
@@ -8151,9 +8387,7 @@ function renderRepartidorHome() {
             </div>
 
             <div class="rider-state-row">
-              <button class="btn btn-small" data-state="recibido" data-id="${order.id}" ${!canMoveTo(order.status, "recibido") ? "disabled" : ""}>Recibido</button>
-              <button class="btn btn-small" data-state="camino" data-id="${order.id}" ${!canMoveTo(order.status, "en camino") ? "disabled" : ""}>En camino</button>
-              <button class="btn btn-primary btn-small" data-state="entregado" data-id="${order.id}" ${!canMoveTo(order.status, "entregado") ? "disabled" : ""}>Entregado</button>
+              ${renderRiderStateActions(order)}
             </div>
           </article>
         `;
@@ -8392,6 +8626,8 @@ function openDetail(ev) {
         <div class="detail-note">${escapeHtml(order.notes)}</div>
       </div>
     ` : ""}
+
+    ${currentUser?.role === "cliente" ? renderClientTrackingExperience(order) : ""}
 
     ${renderDeliveryCodeCard(order)}
 
