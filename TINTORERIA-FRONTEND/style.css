@@ -2197,6 +2197,17 @@ body.theme-light .client-tracking-scene{
   filter:saturate(.72);
 }
 
+.client-tracking-step b svg{
+  display:block;
+  width:25px;
+  height:25px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.9;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+
 body.theme-light .client-tracking-step b{
   background: rgba(255,255,255,.82);
 }

@@ -717,6 +717,7 @@ const CLIENT_TRACKING_STEPS = [
   {
     key: "pendiente",
     label: "Solicitud",
+    icon: "receipt",
     emoji: "🧾",
     title: "Solicitud recibida",
     copy: "Tu servicio ya esta en la bandeja de Menta Laundry.",
@@ -725,6 +726,7 @@ const CLIENT_TRACKING_STEPS = [
   {
     key: "asignado",
     label: "Asignado",
+    icon: "agent",
     emoji: "🧑‍💼",
     title: "Agente asignado",
     copy: "Un agente ya coordina tu servicio y prepara la ruta.",
@@ -733,6 +735,7 @@ const CLIENT_TRACKING_STEPS = [
   {
     key: "en camino a recoger",
     label: "A recoger",
+    icon: "truck",
     emoji: "🚚",
     title: "En camino al cliente",
     copy: "La guaguita va hacia tu direccion para recoger las prendas.",
@@ -741,8 +744,8 @@ const CLIENT_TRACKING_STEPS = [
   {
     key: "recogido al cliente",
     label: "Recogido",
+    icon: "check",
     emoji: "🚚✅",
-    stepEmoji: "✅",
     title: "Ropa recogida",
     copy: "Tus prendas ya fueron recibidas por el equipo de ruta.",
     scene: "truck-check",
@@ -750,6 +753,7 @@ const CLIENT_TRACKING_STEPS = [
   {
     key: "de camino al local",
     label: "Al local",
+    icon: "truck",
     emoji: "🚚",
     title: "De camino al local",
     copy: "La ropa va camino al local para iniciar el proceso.",
@@ -758,6 +762,7 @@ const CLIENT_TRACKING_STEPS = [
   {
     key: "recibido en local",
     label: "En local",
+    icon: "shop",
     emoji: "🏪",
     title: "Recibido en local",
     copy: "El equipo de Menta Laundry ya recibio las prendas.",
@@ -766,8 +771,8 @@ const CLIENT_TRACKING_STEPS = [
   {
     key: "en tratamiento",
     label: "Tratamiento",
+    icon: "wash",
     emoji: "🧺✨",
-    stepEmoji: "🧼",
     title: "En tratamiento textil",
     copy: "Lavado, planchado o cuidado especial en proceso.",
     scene: "wash",
@@ -775,8 +780,8 @@ const CLIENT_TRACKING_STEPS = [
   {
     key: "listo para entrega",
     label: "Listo",
+    icon: "ready",
     emoji: "🏪✨",
-    stepEmoji: "🏪",
     title: "Listo para entrega",
     copy: "Tus prendas estan listas para salir nuevamente.",
     scene: "shop-ready",
@@ -784,6 +789,7 @@ const CLIENT_TRACKING_STEPS = [
   {
     key: "en camino a entregar",
     label: "En entrega",
+    icon: "truck",
     emoji: "🚚",
     title: "En camino al cliente",
     copy: "La guaguita va de regreso con tu pedido.",
@@ -792,12 +798,28 @@ const CLIENT_TRACKING_STEPS = [
   {
     key: "entregado al cliente",
     label: "Entregado",
+    icon: "happy",
     emoji: "😊",
     title: "Entregado al cliente",
     copy: "Servicio completado. Gracias por confiar en Menta Laundry.",
     scene: "happy",
   },
 ];
+
+const TRACKING_STEP_ICONS = {
+  receipt: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10a2 2 0 0 1 2 2v16l-3-1.7-2 1.1-2-1.1-2 1.1-2-1.1L5 21V5a2 2 0 0 1 2-2Z"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4.5"/></svg>`,
+  agent: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/><path d="M5 21a7 7 0 0 1 14 0"/><path d="M9 14.5 12 18l3-3.5"/></svg>`,
+  truck: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3Z"/><path d="M14 10h3.8l3.2 3.4V16h-7Z"/><path d="M6.5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM17.5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/></svg>`,
+  check: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9.5 16.5 4 11"/><path d="M12 22a10 10 0 1 1 8.2-15.7"/></svg>`,
+  shop: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h16l-1.2-5H5.2Z"/><path d="M6 10v10h12V10"/><path d="M9 20v-6h6v6"/><path d="M4 10c0 1.4 1.1 2.5 2.5 2.5S9 11.4 9 10c0 1.4 1.1 2.5 2.5 2.5S14 11.4 14 10c0 1.4 1.1 2.5 2.5 2.5S19 11.4 19 10"/></svg>`,
+  wash: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18H6Z"/><path d="M9 7h.1M12 7h3"/><path d="M16 15a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"/><path d="M9 15c1.6-1.2 3.4 1.2 6 0"/></svg>`,
+  ready: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h16l-1.2-5H5.2Z"/><path d="M6 10v10h12V10"/><path d="M9 20v-6h6v6"/><path d="M17.5 4.5 19 3l1.5 1.5M18.5 7h3"/></svg>`,
+  happy: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z"/><path d="M8.5 10h.1M15.5 10h.1"/><path d="M8.5 14.5c1 1.6 2.2 2.3 3.5 2.3s2.5-.7 3.5-2.3"/></svg>`,
+};
+
+function renderTrackingStepIcon(step) {
+  return TRACKING_STEP_ICONS[step?.icon] || TRACKING_STEP_ICONS.receipt;
+}
 
 function getClientTrackingStep(order) {
   const status = normalizeStatusValue(order?.status);
@@ -841,7 +863,7 @@ function renderClientTrackingExperience(order, options = {}) {
             ].filter(Boolean).join(" ");
             return `
               <div class="${className}">
-                <b>${step.stepEmoji || step.emoji}</b>
+                <b>${renderTrackingStepIcon(step)}</b>
                 <span>${escapeHtml(step.label)}</span>
               </div>
             `;
