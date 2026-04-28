@@ -54,7 +54,7 @@ const screenRenderVersions = new Map();
 const dashboardResourceState = {
   localOrdersLoaded: false,
 };
-const AUTO_REFRESH_INTERVAL_MS = 18000;
+const AUTO_REFRESH_INTERVAL_MS = 10000;
 const AUTO_REFRESH_FOCUS_THROTTLE_MS = 7000;
 const ORDER_WIZARD_STEPS = [
   {
