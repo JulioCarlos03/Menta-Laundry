@@ -1954,14 +1954,15 @@ body.theme-light .delivery-proof-message{
 }
 
 .delivery-code-card-stack{
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .delivery-code-card{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:18px;
+  display:grid;
+  align-content:start;
+  gap:12px;
+  min-width:0;
+  overflow:hidden;
   padding:16px;
   border-radius:24px;
   border:1px solid rgba(124,204,178,.28);
@@ -2005,15 +2006,18 @@ body.theme-light .delivery-code-card-final{
 }
 
 .delivery-code-card strong{
-  display:flex;
-  gap:7px;
+  display:grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap:6px;
+  width:100%;
+  max-width:320px;
   margin-top:8px;
 }
 
 .delivery-code-card b{
   display:grid;
   place-items:center;
-  width:34px;
+  min-width:0;
   height:42px;
   border-radius:13px;
   border:1px solid rgba(124,204,178,.34);
@@ -2024,10 +2028,16 @@ body.theme-light .delivery-code-card-final{
 }
 
 .delivery-code-card small{
-  max-width:280px;
-  color: var(--muted);
+  max-width:360px;
+  color: color-mix(in srgb, var(--muted) 82%, var(--text));
   line-height:1.5;
   font-weight:700;
+}
+
+@media (min-width: 860px){
+  .delivery-code-card-stack{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .delivery-code-card-compact{
@@ -2144,17 +2154,11 @@ body.theme-light .client-tracking-scene{
 .client-tracking-line-wrap{
   position:relative;
   margin-top:16px;
+  --tracking-gap: 8px;
 }
 
 .client-tracking-rail{
-  position:absolute;
-  left:26px;
-  right:26px;
-  top:24px;
-  height:4px;
-  border-radius:999px;
-  background: rgba(124,204,178,.16);
-  overflow:hidden;
+  display:none;
 }
 
 .client-tracking-rail span{
@@ -2175,6 +2179,7 @@ body.theme-light .client-tracking-scene{
 }
 
 .client-tracking-step{
+  position:relative;
   display:grid;
   justify-items:center;
   gap:7px;
@@ -2182,14 +2187,33 @@ body.theme-light .client-tracking-scene{
   color: var(--muted);
 }
 
+.client-tracking-step:not(:first-child)::before{
+  content:"";
+  position:absolute;
+  z-index:0;
+  top:25px;
+  left:calc(-50% - var(--tracking-gap) + 27px);
+  right:calc(50% + 27px);
+  height:4px;
+  border-radius:999px;
+  background: rgba(124,204,178,.18);
+}
+
+.client-tracking-step.is-done::before,
+.client-tracking-step.is-active::before{
+  background: linear-gradient(90deg, #7cccb2, #d9b56f);
+}
+
 .client-tracking-step b{
+  position:relative;
+  z-index:1;
   display:grid;
   place-items:center;
   width:52px;
   height:52px;
   border-radius:19px;
   border:1px solid rgba(124,204,178,.24);
-  background: rgba(255,255,255,.05);
+  background: var(--card);
   font-family:"Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
   font-size:1.22rem;
   line-height:1;
@@ -2209,10 +2233,12 @@ body.theme-light .client-tracking-scene{
 }
 
 body.theme-light .client-tracking-step b{
-  background: rgba(255,255,255,.82);
+  background: #fff;
 }
 
 .client-tracking-step span{
+  position:relative;
+  z-index:1;
   width:100%;
   text-align:center;
   font-size:.7rem;
@@ -2223,7 +2249,9 @@ body.theme-light .client-tracking-step b{
 }
 
 .client-tracking-step.is-done b{
-  background: rgba(124,204,178,.22);
+  background: #dff8ee;
+  border-color: rgba(124,204,178,.45);
+  color:#17624f;
   filter:none;
 }
 
@@ -2363,8 +2391,7 @@ body.theme-light .delivery-proof-summary{
   }
 
   .delivery-code-card{
-    align-items:flex-start;
-    flex-direction:column;
+    gap:12px;
   }
 
   .delivery-code-card-stack{
@@ -2403,9 +2430,7 @@ body.theme-light .delivery-proof-summary{
   }
 
   .client-tracking-rail{
-    left:26px;
-    right:auto;
-    width:760px;
+    display:none;
   }
 
   .client-tracking-steps{
