@@ -1748,6 +1748,7 @@ function isRiderRouteStatus(status) {
     "en camino a recoger",
     "recogido al cliente",
     "de camino al local",
+    "listo para entrega",
     "en camino a entregar",
   ].includes(normalizeStatusValue(status));
 }
@@ -5493,13 +5494,13 @@ function getRiderNextActionLabel(order) {
   const nextStatus = getRiderNextStatus(order);
   const labels = {
     "en camino a recoger": "Ir a recoger",
-    "recogido al cliente": "Confirmar recogida",
+    "recogido al cliente": "Confirmar recogida con PIN",
     "de camino al local": "De camino al local",
     "recibido en local": "Recibido en local",
     "en tratamiento": "Iniciar tratamiento",
     "listo para entrega": "Listo para entrega",
-    "en camino a entregar": "Salir a entregar",
-    "entregado al cliente": "Cerrar con PIN",
+    "en camino a entregar": "Salir a entregar cliente",
+    "entregado al cliente": "Cerrar entrega con PIN",
   };
   if (labels[nextStatus]) return labels[nextStatus];
   return "Sin accion pendiente";
@@ -5511,9 +5512,9 @@ function renderRiderStateActions(order) {
     return `<button class="btn btn-small btn-outline" type="button" disabled>Sin siguiente estado</button>`;
   }
 
-  const primaryClass = nextStatus === "entregado al cliente" ? "btn-primary" : "";
+  const primaryClass = ["recogido al cliente", "entregado al cliente"].includes(nextStatus) ? "btn-primary" : "";
   return `
-    <button class="btn btn-small ${primaryClass}" data-state="${escapeHtml(nextStatus)}" data-id="${order.id}">
+    <button class="btn btn-small rider-state-action ${primaryClass}" data-state="${escapeHtml(nextStatus)}" data-id="${order.id}">
       ${escapeHtml(getRiderNextActionLabel(order))}
     </button>
   `;
@@ -5598,6 +5599,167 @@ function renderRiderReadinessChips(order) {
   }
 
   return `<div class="rider-ready-row">${chips.map((chip) => `<span class="rider-ready-chip ${chip.tone}">${escapeHtml(chip.label)}</span>`).join("")}</div>`;
+}
+
+const RIDER_STAGE_CONFIG = {
+  pickup: {
+    label: "Recoger",
+    title: "Recogidas pendientes",
+    copy: "Ir al cliente y confirmar recogida con PIN.",
+    icon: "R",
+  },
+  local: {
+    label: "Al local",
+    title: "Llevar al local",
+    copy: "Prendas recogidas que deben llegar a Menta Laundry.",
+    icon: "L",
+  },
+  delivery: {
+    label: "Entregar",
+    title: "Entregas finales",
+    copy: "Pedidos listos para salir o cerrarse con PIN.",
+    icon: "E",
+  },
+  internal: {
+    label: "Interno",
+    title: "Proceso interno",
+    copy: "Pedidos en local, tratamiento o preparacion.",
+    icon: "I",
+  },
+  done: {
+    label: "Listo",
+    title: "Completados",
+    copy: "Servicios cerrados o cancelados.",
+    icon: "OK",
+  },
+};
+
+function getRiderStageKey(order) {
+  const status = normalizeStatusValue(order?.status);
+  if (["asignado", "en camino a recoger"].includes(status)) return "pickup";
+  if (["recogido al cliente", "de camino al local"].includes(status)) return "local";
+  if (["listo para entrega", "en camino a entregar"].includes(status)) return "delivery";
+  if (isClosedOrderStatus(status)) return "done";
+  return "internal";
+}
+
+function renderRiderStageOverview(routePlan) {
+  const entries = [...(routePlan?.active || []), ...(routePlan?.waiting || []), ...(routePlan?.done || [])];
+  const stageOrder = ["pickup", "local", "delivery", "internal"];
+
+  return `
+    <div class="rider-stage-overview" aria-label="Resumen operativo por etapa">
+      ${stageOrder.map((stageKey) => {
+        const config = RIDER_STAGE_CONFIG[stageKey];
+        const stageEntries = entries.filter((entry) => getRiderStageKey(entry.order) === stageKey);
+        const nextEntry = stageEntries[0];
+        return `
+          <div class="rider-stage-card ${stageEntries.length ? "rider-stage-card-live" : ""}">
+            <span class="rider-stage-icon">${escapeHtml(config.icon)}</span>
+            <div>
+              <strong>${escapeHtml(config.title)}</strong>
+              <small>${escapeHtml(stageEntries.length ? `${stageEntries.length} pedido${stageEntries.length === 1 ? "" : "s"}` : config.copy)}</small>
+              ${nextEntry ? `<em>#${nextEntry.order.id} | ${escapeHtml(nextEntry.order.userName || "Cliente")}</em>` : ""}
+            </div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function getRiderNextStopKind(order) {
+  const stage = getRiderStageKey(order);
+  return RIDER_STAGE_CONFIG[stage]?.label || "Ruta";
+}
+
+function renderRiderNextStopHero(entry, routePlan, assigned = []) {
+  const completionCount = assigned.filter((order) => isFinalDeliveryStatus(order.status)).length;
+  const completionPercent = assigned.length ? Math.round((completionCount / assigned.length) * 100) : 0;
+
+  if (!entry) {
+    return `
+      <div class="rider-next-stop-hero rider-next-stop-empty">
+        <div class="rider-next-copy">
+          <span>Siguiente parada</span>
+          <strong>Ruta limpia por ahora</strong>
+          <small>No hay pedidos activos pendientes en este momento.</small>
+        </div>
+        <div class="rider-route-progress"><span style="width:${completionPercent}%"></span></div>
+      </div>
+    `;
+  }
+
+  const order = entry.order;
+  const location = getOrderLocation(order);
+  const contactDigits = getOrderContactDigits(order);
+
+  return `
+    <div class="rider-next-stop-hero">
+      <div class="rider-next-copy">
+        <span>${escapeHtml(getRiderNextStopKind(order))} | Parada ${entry.stopNumber || "--"}</span>
+        <strong>Pedido #${order.id} | ${escapeHtml(order.userName || "Cliente")}</strong>
+        <small>${escapeHtml(order.zone || "--")} | ${escapeHtml(fmtDate(order.date))} ${escapeHtml(fmtTime(order.time) || "")} | ${escapeHtml(entry.distanceLabel)}</small>
+      </div>
+      <div class="rider-next-address">
+        <div>${escapeHtml(order.address || "Direccion por confirmar")}</div>
+        <small>${location ? escapeHtml(formatCoordinatePair(location)) : "Sin GPS, usa la direccion escrita."}</small>
+      </div>
+      <div class="rider-next-primary-actions">
+        ${renderOrderOpsLinks(order, {
+          compact: true,
+          directions: true,
+          origin: routePlan?.routeOrigin?.point,
+          mapLabel: "Abrir ruta",
+          includeContact: false,
+          className: "rider-hero-op-links",
+        })}
+        <a class="btn btn-small btn-outline" href="tel:+${contactDigits}">Llamar</a>
+        <a class="btn btn-small btn-outline" href="https://wa.me/${contactDigits}?text=${encodeURIComponent(getOrderContactMessage(order))}" target="_blank" rel="noreferrer">WhatsApp</a>
+        ${renderRiderStateActions(order)}
+      </div>
+      <div class="rider-route-progress"><span style="width:${completionPercent}%"></span></div>
+      <div class="card-secondary">${completionCount} de ${assigned.length} pedidos completados hoy en tu ruta.</div>
+    </div>
+  `;
+}
+
+function renderRiderRouteLog(orders) {
+  const movements = orders
+    .flatMap((order) => (Array.isArray(order.history) ? order.history : []).map((item) => ({ ...item, order })))
+    .sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime())
+    .slice(0, 6);
+
+  if (!movements.length) {
+    return `
+      <div class="rider-route-log">
+        <div class="detail-section-title">Bitacora de ruta</div>
+        <div class="rider-guide-muted">Cuando actualices pedidos, aqui aparecera el historial rapido de la ruta.</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="rider-route-log">
+      <div class="rider-route-guide-head">
+        <div>
+          <div class="detail-section-title">Bitacora de ruta</div>
+          <div class="card-secondary">Ultimos movimientos sin abrir el detalle.</div>
+        </div>
+      </div>
+      <div class="rider-log-list">
+        ${movements.map((movement) => `
+          <div class="rider-log-item">
+            <span></span>
+            <div>
+              <strong>#${movement.order.id} | ${escapeHtml(formatStatusLabel(movement.status))}</strong>
+              <small>${escapeHtml(movement.order.userName || "Cliente")} | ${escapeHtml(movement.by || "Sistema")} | ${escapeHtml(fmtDate(movement.at))} ${escapeHtml(fmtTime(movement.at))}</small>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
 }
 
 function copyText(value, successMessage = "Copiado") {
@@ -6364,7 +6526,7 @@ function renderRiderRouteGuide(routePlan) {
   if (!activeEntries.length) {
     return `
       <div class="rider-route-guide">
-        <div class="detail-section-title">Guia de recogidas cercanas</div>
+        <div class="detail-section-title">Guia de paradas cercanas</div>
         <div class="rider-guide-empty">Cuando tengas pedidos activos, aqui veras la ruta recomendada por cercania.</div>
       </div>
     `;
@@ -6374,7 +6536,7 @@ function renderRiderRouteGuide(routePlan) {
     <div class="rider-route-guide">
       <div class="rider-route-guide-head">
         <div>
-          <div class="detail-section-title">Guia de recogidas cercanas</div>
+          <div class="detail-section-title">Guia de paradas cercanas</div>
           <div class="card-secondary">
             ${gpsEntries.length} paradas con GPS | ${noGpsEntries.length} sin GPS | ${totalKm > 0 ? `${totalKm.toFixed(1)} km estimados` : "Distancia por confirmar"}
           </div>
@@ -6418,7 +6580,7 @@ function renderRiderRouteGuide(routePlan) {
               nearbyGroups.length
                 ? nearbyGroups.slice(0, 3).map((group, index) => `
                   <div class="rider-nearby-group">
-                    <strong>Bloque ${index + 1}: ${group.length} recogidas cercanas</strong>
+                    <strong>Bloque ${index + 1}: ${group.length} paradas cercanas</strong>
                     <span>Conviene hacerlas juntas antes de saltar a otra zona.</span>
                     <div class="rider-nearby-orders">
                       ${group.map((entry) => `<small>#${entry.order.id} | ${escapeHtml(entry.order.userName || "Cliente")} | ${escapeHtml(entry.order.zone || "--")}</small>`).join("")}
@@ -8332,7 +8494,6 @@ function renderRepartidorHome() {
   const withGps = assigned.filter((o) => getOrderLocation(o)).length;
   const pendingWeight = assigned.filter((o) => getRiderChargeSummary(o).weightPending).length;
   const routeEstimate = assigned.reduce((sum, order) => sum + Number(buildOrderChargeBreakdown(order).total || 0), 0);
-  const completionPercent = assigned.length ? Math.round((delivered.length / assigned.length) * 100) : 0;
   const meta = 30;
   const extra = Math.max(todayCount - meta, 0);
   const comision = extra * 50;
@@ -8401,34 +8562,10 @@ function renderRepartidorHome() {
         ${routePlan.gpsCount} pedidos con GPS | ${routePlan.noGpsCount} pedidos sin GPS | ${withNotes} con notas
       </div>
     </div>
-    <div class="rider-route-hint">
-      <div class="detail-section-title">Proxima parada sugerida</div>
-      <div class="rider-route-progress">
-        <span style="width:${completionPercent}%"></span>
-      </div>
-      <div class="card-secondary">${delivered.length} de ${assigned.length} pedidos completados hoy en tu ruta.</div>
-      <div class="rider-next-stop-card">
-        ${
-          nextStop
-            ? `
-              <div>
-                <strong>Ahora toca: Pedido #${nextStop.order.id} | ${escapeHtml(nextStop.order.userName)}</strong>
-                <span>${escapeHtml(nextStop.order.zone)} | ${escapeHtml(fmtDate(nextStop.order.date))} ${escapeHtml(fmtTime(nextStop.order.time))} | ${escapeHtml(nextStop.distanceLabel)}</span>
-              </div>
-              <div class="rider-next-actions">
-                ${renderOrderOpsLinks(nextStop.order, {
-                  compact: true,
-                  directions: true,
-                  origin: routePlan.routeOrigin.point,
-                  mapLabel: "Ir ahora",
-                })}
-              </div>
-            `
-            : `<div><strong>Ruta limpia por ahora.</strong><span>No hay pedidos activos pendientes en este momento.</span></div>`
-        }
-      </div>
-    </div>
+    ${renderRiderNextStopHero(nextStop, routePlan, assigned)}
+    ${renderRiderStageOverview(routePlan)}
     ${renderRiderRouteGuide(routePlan)}
+    ${renderRiderRouteLog(assigned)}
   `;
 
   boardCard.innerHTML = `
@@ -8462,7 +8599,7 @@ function renderRepartidorHome() {
         const cardClass = [
           "rider-order-card",
           entry.stopNumber === 1 ? "rider-order-card-active" : "",
-          !entry.stopNumber ? "rider-order-card-done" : "",
+          entry.routeType === "completado" ? "rider-order-card-done" : "",
           !location ? "rider-order-card-no-gps" : "",
         ].filter(Boolean).join(" ");
 
@@ -8598,7 +8735,7 @@ function renderRepartidorHome() {
   }
   qs("#riderGeoLocateBtn")?.addEventListener("click", captureRiderLocation);
   qs("#riderGeoClearBtn")?.addEventListener("click", clearRiderLocation);
-  Array.from(board.querySelectorAll("[data-state]")).forEach((btn) => btn.addEventListener("click", repartidorUpdateStatus));
+  qsa("#repartidorHomePanel [data-state]").forEach((btn) => btn.addEventListener("click", repartidorUpdateStatus));
   Array.from(board.querySelectorAll("[data-copy-address]")).forEach((btn) => {
     btn.addEventListener("click", () => {
       const order = getOrderById(btn.dataset.copyAddress);
