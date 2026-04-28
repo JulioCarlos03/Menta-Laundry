@@ -4974,6 +4974,274 @@ body.theme-light .order-wizard-actions-shell{
   pointer-events: none;
 }
 
+.gestor-control-card{
+  position: relative;
+  overflow: hidden;
+  margin-top: 14px;
+  background:
+    radial-gradient(520px 220px at 0% 0%, rgba(88,215,198,.16), transparent 70%),
+    radial-gradient(420px 220px at 100% 0%, rgba(217,181,111,.12), transparent 72%),
+    var(--card);
+}
+
+.gestor-control-card::before{
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: linear-gradient(90deg, rgba(88,215,198,.88), rgba(217,181,111,.78), rgba(47,130,178,.58));
+}
+
+.gestor-control-hero{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.gestor-control-kicker{
+  color: var(--muted);
+  font-size: .78rem;
+  font-weight: 950;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.gestor-control-hero h3{
+  margin: 6px 0 0;
+  color: var(--text);
+  font-size: clamp(1.45rem, 3vw, 2.45rem);
+  line-height: 1.05;
+}
+
+.gestor-control-hero p{
+  margin: 10px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.gestor-health-ring{
+  --health-color: #58d7c6;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 118px;
+  height: 118px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background:
+    conic-gradient(var(--health-color) var(--health), rgba(255,255,255,.10) 0),
+    rgba(255,255,255,.06);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 18px 42px rgba(0,0,0,.16);
+}
+
+.gestor-health-ring::before{
+  content: "";
+  position: absolute;
+  inset: 9px;
+  border-radius: inherit;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+
+.gestor-health-warn{
+  --health-color: #d9b56f;
+}
+
+.gestor-health-danger{
+  --health-color: #d77766;
+}
+
+.gestor-health-ring strong,
+.gestor-health-ring span{
+  position: relative;
+  z-index: 1;
+  display: block;
+  text-align: center;
+}
+
+.gestor-health-ring strong{
+  color: var(--text);
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.gestor-health-ring span{
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.gestor-control-grid{
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gestor-control-metric{
+  padding: 15px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+}
+
+body.theme-light .gestor-control-metric{
+  background: rgba(246,252,253,.86);
+}
+
+.gestor-control-metric span{
+  display: block;
+  color: var(--muted);
+  font-size: .73rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.gestor-control-metric strong{
+  display: block;
+  margin-top: 7px;
+  color: var(--text);
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.gestor-flow-strip{
+  position: relative;
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.gestor-flow-step{
+  position: relative;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(88,215,198,.18);
+  background:
+    linear-gradient(135deg, rgba(88,215,198,.10), rgba(255,255,255,.03)),
+    rgba(255,255,255,.03);
+}
+
+body.theme-light .gestor-flow-step{
+  background:
+    linear-gradient(135deg, rgba(88,215,198,.12), rgba(255,255,255,.82)),
+    rgba(255,255,255,.88);
+}
+
+.gestor-flow-step span,
+.gestor-flow-step strong{
+  display: block;
+}
+
+.gestor-flow-step span{
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 900;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.gestor-flow-step strong{
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 1.65rem;
+  line-height: 1;
+}
+
+.gestor-action-queue{
+  margin-top: 18px;
+}
+
+.gestor-action-list{
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.gestor-action-card{
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+}
+
+body.theme-light .gestor-action-card{
+  background: rgba(246,252,253,.88);
+}
+
+.gestor-action-card span,
+.gestor-action-card strong,
+.gestor-action-card small{
+  display: block;
+}
+
+.gestor-action-card span{
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 950;
+  letter-spacing: .10em;
+  text-transform: uppercase;
+}
+
+.gestor-action-card strong{
+  margin-top: 5px;
+  color: var(--text);
+  line-height: 1.25;
+}
+
+.gestor-action-card small{
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.gestor-action-urgent{
+  border-color: rgba(88,215,198,.28);
+  background:
+    radial-gradient(220px 120px at 0% 0%, rgba(88,215,198,.13), transparent 70%),
+    rgba(255,255,255,.04);
+}
+
+.gestor-action-danger{
+  border-color: rgba(204,96,74,.28);
+}
+
+.gestor-action-warn{
+  border-color: rgba(217,181,111,.30);
+}
+
+.gestor-action-info{
+  border-color: rgba(47,130,178,.26);
+}
+
+.gestor-action-card-actions{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gestor-action-card-actions .order-op-actions{
+  width: auto;
+}
+
+.gestor-control-empty{
+  grid-column: 1 / -1;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  text-align: center;
+}
+
 .executive-card{
   margin-top: 14px;
 }
@@ -6847,6 +7115,8 @@ body.theme-light .invoice-meta-card{
 }
 
 @media (max-width: 900px){
+  .gestor-control-grid,
+  .gestor-flow-strip,
   .executive-grid,
   .brand-promise-grid,
   .dispatch-health-grid{
@@ -6864,6 +7134,7 @@ body.theme-light .invoice-meta-card{
 }
 
 @media (max-width: 720px){
+  .gestor-control-hero,
   .invoice-brand-row,
   .client-spotlight,
   .client-hero-banner,
@@ -6875,6 +7146,11 @@ body.theme-light .invoice-meta-card{
   .coverage-rider-head{
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .gestor-health-ring{
+    width: 104px;
+    height: 104px;
   }
 
   .invoice-meta-card{
@@ -6916,6 +7192,8 @@ body.theme-light .invoice-meta-card{
 }
 
 @media (max-width: 640px){
+  .gestor-control-grid,
+  .gestor-flow-strip,
   .executive-grid,
   .brand-promise-grid,
   .dispatch-health-grid,

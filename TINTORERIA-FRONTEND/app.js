@@ -7230,8 +7230,8 @@ function renderGestorHome() {
     executiveCard = document.createElement("div");
     executiveCard.id = "gestorExecutiveCard";
     executiveCard.className = "card card-spaced executive-card";
-    const summaryRow = qs("#gestorHomePanel .role-summary-row");
-    summaryRow?.insertAdjacentElement("afterend", executiveCard);
+    const anchor = qs("#gestorControlTowerCard") || qs("#gestorHomePanel .role-summary-row");
+    anchor?.insertAdjacentElement("afterend", executiveCard);
   }
 
   const priorityOrders = [...nonLocal]
@@ -7607,6 +7607,226 @@ function renderGestorRiderRecommendation(order, recommendation = getGestorRiderR
   `;
 }
 
+function getGestorStageBuckets(orders) {
+  const activeOrders = orders.filter((order) => !isClosedOrderStatus(order.status));
+  return {
+    pickup: activeOrders.filter((order) => ["pendiente", "asignado", "en camino a recoger"].includes(normalizeStatusValue(order.status))),
+    toLocal: activeOrders.filter((order) => ["recogido al cliente", "de camino al local"].includes(normalizeStatusValue(order.status))),
+    internal: activeOrders.filter((order) => ["recibido en local", "en tratamiento"].includes(normalizeStatusValue(order.status))),
+    delivery: activeOrders.filter((order) => ["listo para entrega", "en camino a entregar"].includes(normalizeStatusValue(order.status))),
+  };
+}
+
+function getGestorControlTowerMetrics({
+  scopedOrders,
+  scopedRiders,
+  pendientes,
+  sinAsignar,
+}) {
+  const activeOrders = scopedOrders.filter((order) => !isClosedOrderStatus(order.status));
+  const delayedOrders = activeOrders.filter((order) => getOrderHighlightFlags(order).delayed);
+  const noGpsOrders = activeOrders.filter((order) => getOrderHighlightFlags(order).noGps);
+  const zoneMismatchOrders = activeOrders.filter((order) => getOrderHighlightFlags(order).zoneMismatch);
+  const readyForDelivery = activeOrders.filter((order) => ["listo para entrega", "en camino a entregar"].includes(normalizeStatusValue(order.status)));
+  const riderLoads = scopedRiders.map((rider) => ({
+    rider,
+    workload: getRiderWorkload(rider, scopedOrders),
+  }));
+  const overloadedRiders = riderLoads.filter((entry) => entry.workload.activeCount >= 5);
+  const idleRiders = riderLoads.filter((entry) => entry.workload.activeCount === 0);
+  const healthScore = clampNumber(
+    100 -
+      delayedOrders.length * 18 -
+      sinAsignar.length * 12 -
+      noGpsOrders.length * 7 -
+      overloadedRiders.length * 10 -
+      zoneMismatchOrders.length * 8,
+    0,
+    100
+  );
+  const tone = healthScore >= 78 ? "good" : healthScore >= 52 ? "warn" : "danger";
+  const label = healthScore >= 78 ? "Operacion estable" : healthScore >= 52 ? "Requiere atencion" : "Prioridad critica";
+
+  return {
+    activeOrders,
+    delayedOrders,
+    noGpsOrders,
+    zoneMismatchOrders,
+    readyForDelivery,
+    riderLoads,
+    overloadedRiders,
+    idleRiders,
+    healthScore,
+    tone,
+    label,
+    stages: getGestorStageBuckets(scopedOrders),
+    pendingDispatch: pendientes,
+  };
+}
+
+function renderGestorOpsActionQueue(metrics) {
+  const actions = [];
+  const firstUnassigned = metrics.pendingDispatch?.find((order) => !order.repartidorId) || metrics.pendingDispatch?.[0];
+  const delayedOrder = metrics.delayedOrders[0];
+  const noGpsOrder = metrics.noGpsOrders[0];
+  const readyOrder = metrics.readyForDelivery[0];
+  const overloaded = metrics.overloadedRiders[0];
+
+  if (firstUnassigned) {
+    const recommendation = getGestorRiderRecommendation(firstUnassigned);
+    actions.push({
+      tone: "urgent",
+      kicker: "Asignar ahora",
+      title: `Pedido #${firstUnassigned.id} | ${firstUnassigned.userName || "Cliente"}`,
+      copy: recommendation?.rider
+        ? `Sugerido: ${recommendation.rider.name} (${recommendation.workload.activeCount} activos).`
+        : "No hay repartidor sugerido. Revisa cobertura manualmente.",
+      action: recommendation?.rider
+        ? `<button class="btn btn-primary btn-small" type="button" data-suggested-assign="${firstUnassigned.id}" data-rider-id="${recommendation.rider.id}">Asignar sugerido</button>`
+        : `<button class="btn btn-small btn-outline" type="button" data-detalle="${firstUnassigned.id}">Ver pedido</button>`,
+    });
+  }
+
+  if (delayedOrder) {
+    actions.push({
+      tone: "danger",
+      kicker: "Atraso",
+      title: `Pedido #${delayedOrder.id} fuera de hora`,
+      copy: `${delayedOrder.zone || "Zona"} | ${fmtDate(delayedOrder.date)} ${fmtTime(delayedOrder.time)} | ${delayedOrder.repartidorName || "Sin repartidor"}.`,
+      action: `<button class="btn btn-small btn-outline" type="button" data-detalle="${delayedOrder.id}">Revisar detalle</button>`,
+    });
+  }
+
+  if (noGpsOrder) {
+    actions.push({
+      tone: "warn",
+      kicker: "GPS pendiente",
+      title: `Confirmar ubicacion #${noGpsOrder.id}`,
+      copy: "Este pedido depende de direccion escrita. Conviene validar antes de enviar ruta.",
+      action: renderOrderOpsLinks(noGpsOrder, { compact: true }),
+    });
+  }
+
+  if (readyOrder) {
+    actions.push({
+      tone: "info",
+      kicker: "Salida final",
+      title: `Preparar entrega #${readyOrder.id}`,
+      copy: readyOrder.repartidorName ? `Asignado a ${readyOrder.repartidorName}.` : "Listo para asignar ruta final.",
+      action: `<button class="btn btn-small btn-outline" type="button" data-detalle="${readyOrder.id}">Ver ruta</button>`,
+    });
+  }
+
+  if (overloaded) {
+    actions.push({
+      tone: "warn",
+      kicker: "Carga alta",
+      title: `${overloaded.rider.name} lleva ${overloaded.workload.activeCount} activos`,
+      copy: metrics.idleRiders[0]
+        ? `Puedes balancear con ${metrics.idleRiders[0].rider.name}.`
+        : "No hay repartidor libre en esta vista.",
+      action: "",
+    });
+  }
+
+  const visibleActions = actions.slice(0, 4);
+  if (!visibleActions.length) {
+    return `<div class="gestor-control-empty">La operacion luce despejada. Mantente atento al auto-sync para nuevos pedidos.</div>`;
+  }
+
+  return visibleActions.map((item) => `
+    <article class="gestor-action-card gestor-action-${item.tone}">
+      <div>
+        <span>${escapeHtml(item.kicker)}</span>
+        <strong>${escapeHtml(item.title)}</strong>
+        <small>${escapeHtml(item.copy)}</small>
+      </div>
+      ${item.action ? `<div class="gestor-action-card-actions">${item.action}</div>` : ""}
+    </article>
+  `).join("");
+}
+
+function renderGestorControlTowerPanel({
+  activeZoneFilter,
+  zoneLabel,
+  scopedOrders,
+  scopedRiders,
+  pendientes,
+  sinAsignar,
+}) {
+  let controlCard = qs("#gestorControlTowerCard");
+  if (!controlCard) {
+    controlCard = document.createElement("div");
+    controlCard.id = "gestorControlTowerCard";
+    controlCard.className = "card card-spaced gestor-control-card";
+    const summaryRow = qs("#gestorHomePanel .role-summary-row");
+    summaryRow?.insertAdjacentElement("afterend", controlCard);
+  }
+
+  const metrics = getGestorControlTowerMetrics({
+    scopedOrders,
+    scopedRiders,
+    pendientes,
+    sinAsignar,
+  });
+  const stageItems = [
+    { key: "pickup", label: "Recoger", value: metrics.stages.pickup.length },
+    { key: "toLocal", label: "Al local", value: metrics.stages.toLocal.length },
+    { key: "internal", label: "Tratamiento", value: metrics.stages.internal.length },
+    { key: "delivery", label: "Entregar", value: metrics.stages.delivery.length },
+  ];
+
+  controlCard.innerHTML = `
+    <div class="gestor-control-hero">
+      <div>
+        <div class="gestor-control-kicker">Centro de mando</div>
+        <h3>${escapeHtml(metrics.label)}</h3>
+        <p>${activeZoneFilter === "all" ? "Lectura general de despacho, ruta y atencion al cliente." : `Operacion enfocada en ${escapeHtml(zoneLabel)}.`}</p>
+      </div>
+      <div class="gestor-health-ring gestor-health-${metrics.tone}" style="--health:${metrics.healthScore}%">
+        <strong>${metrics.healthScore}</strong>
+        <span>salud</span>
+      </div>
+    </div>
+
+    <div class="gestor-control-grid">
+      <div class="gestor-control-metric">
+        <span>Sin asignar</span>
+        <strong>${sinAsignar.length}</strong>
+      </div>
+      <div class="gestor-control-metric">
+        <span>Atrasados</span>
+        <strong>${metrics.delayedOrders.length}</strong>
+      </div>
+      <div class="gestor-control-metric">
+        <span>Sin GPS</span>
+        <strong>${metrics.noGpsOrders.length}</strong>
+      </div>
+      <div class="gestor-control-metric">
+        <span>Repartidores libres</span>
+        <strong>${metrics.idleRiders.length}</strong>
+      </div>
+    </div>
+
+    <div class="gestor-flow-strip">
+      ${stageItems.map((stage) => `
+        <div class="gestor-flow-step gestor-flow-${stage.key}">
+          <span>${escapeHtml(stage.label)}</span>
+          <strong>${stage.value}</strong>
+        </div>
+      `).join("")}
+    </div>
+
+    <div class="gestor-action-queue">
+      <div class="detail-section-title">Proximas acciones recomendadas</div>
+      <div class="gestor-action-list">${renderGestorOpsActionQueue(metrics)}</div>
+    </div>
+  `;
+
+  bindGestorSuggestedAssignButtons(controlCard);
+  bindInvoiceAndDetailButtons(controlCard);
+}
+
 function renderGestorHome() {
   const today = new Date().toISOString().slice(0, 10);
   const nonLocal = ordersCache.filter((o) => o.channel !== "local");
@@ -7639,6 +7859,14 @@ function renderGestorHome() {
   qs("#gestorTodayCount").textContent = String(scopedOrders.filter((o) => o.date === today).length);
   qs("#gestorClientsCount").textContent = String(new Set(scopedOrders.map((o) => o.userId).filter(Boolean)).size);
 
+  renderGestorControlTowerPanel({
+    activeZoneFilter,
+    zoneLabel,
+    scopedOrders,
+    scopedRiders,
+    pendientes,
+    sinAsignar,
+  });
   renderGestorExecutivePanel({
     activeZoneFilter,
     zoneLabel,
@@ -7694,8 +7922,8 @@ function renderGestorExecutivePanel({
     executiveCard = document.createElement("div");
     executiveCard.id = "gestorExecutiveCard";
     executiveCard.className = "card card-spaced executive-card";
-    const summaryRow = qs("#gestorHomePanel .role-summary-row");
-    summaryRow?.insertAdjacentElement("afterend", executiveCard);
+    const anchor = qs("#gestorControlTowerCard") || qs("#gestorHomePanel .role-summary-row");
+    anchor?.insertAdjacentElement("afterend", executiveCard);
   }
 
   executiveCard.innerHTML = `
