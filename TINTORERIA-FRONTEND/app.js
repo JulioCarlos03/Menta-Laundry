@@ -665,19 +665,50 @@ function getDeliveryCode(order) {
   return code.length === 6 ? code : "";
 }
 
+function getPickupCode(order) {
+  const code = String(order?.pickupCode || "").replace(/\D/g, "");
+  const status = normalizeStatusValue(order?.status);
+  if (currentUser?.role !== "cliente") return "";
+  if (isClosedOrderStatus(status)) return "";
+  if (!["pendiente", "asignado", "en camino a recoger"].includes(status)) return "";
+  return code.length === 6 ? code : "";
+}
+
+function renderRouteCodeDigits(code) {
+  return code.split("").map((digit) => `<b>${digit}</b>`).join("");
+}
+
 function renderDeliveryCodeCard(order, options = {}) {
-  const code = getDeliveryCode(order);
-  if (!code) return "";
+  const codes = [
+    {
+      code: getPickupCode(order),
+      title: "PIN de recogida",
+      copy: "Compartelo solo cuando entregues la ropa al repartidor.",
+      className: "delivery-code-card-pickup",
+    },
+    {
+      code: getDeliveryCode(order),
+      title: "PIN de entrega",
+      copy: "Compartelo cuando recibas tus prendas limpias.",
+      className: "delivery-code-card-final",
+    },
+  ].filter((item) => item.code);
+
+  if (!codes.length) return "";
 
   const compactClass = options.compact ? " delivery-code-card-compact" : "";
-  const title = options.title || "Codigo de entrega";
+  const stackClass = codes.length > 1 ? " delivery-code-card-stack" : "";
   return `
-    <div class="delivery-code-card${compactClass}">
-      <div>
-        <span>${escapeHtml(title)}</span>
-        <strong>${code.split("").map((digit) => `<b>${digit}</b>`).join("")}</strong>
-      </div>
-      <small>Solo compartelo cuando recibas tus prendas. El repartidor no puede cerrar la entrega sin este PIN.</small>
+    <div class="delivery-code-cards${compactClass}${stackClass}">
+      ${codes.map((item) => `
+        <div class="delivery-code-card ${item.className}">
+          <div>
+            <span>${escapeHtml(options.title || item.title)}</span>
+            <strong>${renderRouteCodeDigits(item.code)}</strong>
+          </div>
+          <small>${escapeHtml(item.copy)} El repartidor no puede avanzar ese paso sin este PIN.</small>
+        </div>
+      `).join("")}
     </div>
   `;
 }
@@ -711,6 +742,7 @@ const CLIENT_TRACKING_STEPS = [
     key: "recogido al cliente",
     label: "Recogido",
     emoji: "🚚✅",
+    stepEmoji: "✅",
     title: "Ropa recogida",
     copy: "Tus prendas ya fueron recibidas por el equipo de ruta.",
     scene: "truck-check",
@@ -735,6 +767,7 @@ const CLIENT_TRACKING_STEPS = [
     key: "en tratamiento",
     label: "Tratamiento",
     emoji: "🧺✨",
+    stepEmoji: "🧼",
     title: "En tratamiento textil",
     copy: "Lavado, planchado o cuidado especial en proceso.",
     scene: "wash",
@@ -743,6 +776,7 @@ const CLIENT_TRACKING_STEPS = [
     key: "listo para entrega",
     label: "Listo",
     emoji: "🏪✨",
+    stepEmoji: "🏪",
     title: "Listo para entrega",
     copy: "Tus prendas estan listas para salir nuevamente.",
     scene: "shop-ready",
@@ -807,7 +841,7 @@ function renderClientTrackingExperience(order, options = {}) {
             ].filter(Boolean).join(" ");
             return `
               <div class="${className}">
-                <b>${step.emoji}</b>
+                <b>${step.stepEmoji || step.emoji}</b>
                 <span>${escapeHtml(step.label)}</span>
               </div>
             `;
@@ -868,15 +902,15 @@ function ensureDeliveryProofDialog() {
       </div>
       <div id="deliveryProofMessage" class="delivery-proof-message" style="display:none;"></div>
       <div class="delivery-proof-fields">
-        <label>
-          <span>Codigo del cliente</span>
+        <label data-delivery-proof-field="code">
+          <span id="deliveryProofCodeLabel">Codigo del cliente</span>
           <input id="deliveryProofCode" class="delivery-code-input" type="text" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code" required>
         </label>
-        <label>
+        <label data-delivery-proof-field="receiver">
           <span>Nombre de quien recibio</span>
           <input id="deliveryProofReceiver" type="text" maxlength="80" placeholder="Ej. Maria Perez" autocomplete="off" required>
         </label>
-        <label>
+        <label data-delivery-proof-field="method">
           <span>Metodo de entrega</span>
           <select id="deliveryProofMethod" required>
             <option value="">Seleccionar...</option>
@@ -887,14 +921,14 @@ function ensureDeliveryProofDialog() {
             <option value="otro">Otro</option>
           </select>
         </label>
-        <label class="delivery-proof-note-field">
+        <label class="delivery-proof-note-field" data-delivery-proof-field="note">
           <span>Nota opcional</span>
           <textarea id="deliveryProofNote" maxlength="240" rows="3" placeholder="Ej. Entregado en recepcion, persona autorizada."></textarea>
         </label>
       </div>
       <div class="delivery-proof-actions">
         <button type="button" class="confirm-dialog-btn confirm-dialog-btn-secondary" data-delivery-proof-action="cancel">Volver</button>
-        <button type="submit" class="confirm-dialog-btn confirm-dialog-btn-primary">Entregado al cliente</button>
+        <button id="deliveryProofSubmit" type="submit" class="confirm-dialog-btn confirm-dialog-btn-primary">Entregado al cliente</button>
       </div>
     </form>
   `;
@@ -910,6 +944,7 @@ function ensureDeliveryProofDialog() {
   dialog.querySelector("#deliveryProofForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
 
+    const mode = dialog.dataset.proofMode || "delivery";
     const receiverName = dialog.querySelector("#deliveryProofReceiver")?.value.trim() || "";
     const deliveryMethod = dialog.querySelector("#deliveryProofMethod")?.value.trim() || "";
     const note = dialog.querySelector("#deliveryProofNote")?.value.trim() || "";
@@ -918,9 +953,16 @@ function ensureDeliveryProofDialog() {
 
     if (deliveryCode.length !== 6) {
       if (message) {
-        message.textContent = "Pide al cliente su codigo de 6 digitos.";
+        message.textContent = mode === "pickup"
+          ? "Pide al cliente su PIN de recogida de 6 digitos."
+          : "Pide al cliente su PIN de entrega de 6 digitos.";
         message.style.display = "block";
       }
+      return;
+    }
+
+    if (mode === "pickup") {
+      closeDeliveryProofDialog({ pickupCode: deliveryCode });
       return;
     }
 
@@ -961,10 +1003,14 @@ function closeDeliveryProofDialog(result = null) {
   if (resolver) resolver(result);
 }
 
-function showDeliveryProofDialog(order) {
+function showDeliveryProofDialog(order, options = {}) {
+  const mode = options.mode === "pickup" ? "pickup" : "delivery";
   if (!document.body) {
-    const deliveryCode = window.prompt("Codigo de entrega del cliente:");
+    const deliveryCode = window.prompt(mode === "pickup" ? "Codigo de recogida del cliente:" : "Codigo de entrega del cliente:");
     if (!deliveryCode) return Promise.resolve(null);
+    if (mode === "pickup") {
+      return Promise.resolve({ pickupCode: String(deliveryCode).replace(/\D/g, "") });
+    }
     const receiverName = window.prompt("Nombre de quien recibio el pedido:");
     if (!receiverName) return Promise.resolve(null);
     return Promise.resolve({
@@ -984,11 +1030,39 @@ function showDeliveryProofDialog(order) {
   }
 
   const form = dialog.querySelector("#deliveryProofForm");
+  const title = dialog.querySelector("#deliveryProofTitle");
   const copy = dialog.querySelector("#deliveryProofCopy");
+  const codeLabel = dialog.querySelector("#deliveryProofCodeLabel");
   const message = dialog.querySelector("#deliveryProofMessage");
+  const submit = dialog.querySelector("#deliveryProofSubmit");
+  const receiverInput = dialog.querySelector("#deliveryProofReceiver");
+  const methodInput = dialog.querySelector("#deliveryProofMethod");
+  const noteInput = dialog.querySelector("#deliveryProofNote");
+  const pickupMode = mode === "pickup";
   form?.reset();
+  dialog.dataset.proofMode = mode;
+  dialog.classList.toggle("delivery-proof-pickup-mode", pickupMode);
+  dialog.querySelectorAll("[data-delivery-proof-field='receiver'], [data-delivery-proof-field='method'], [data-delivery-proof-field='note']").forEach((field) => {
+    field.hidden = pickupMode;
+  });
+  if (receiverInput) {
+    receiverInput.required = !pickupMode;
+    receiverInput.disabled = pickupMode;
+  }
+  if (methodInput) {
+    methodInput.required = !pickupMode;
+    methodInput.disabled = pickupMode;
+  }
+  if (noteInput) {
+    noteInput.disabled = pickupMode;
+  }
+  if (title) title.textContent = pickupMode ? "Validar recogida" : "Validar entrega";
+  if (codeLabel) codeLabel.textContent = pickupMode ? "PIN de recogida" : "PIN de entrega";
+  if (submit) submit.textContent = pickupMode ? "Confirmar recogida" : "Entregado al cliente";
   if (copy) {
-    copy.textContent = `Pedido #${order?.id || "--"} | ${order?.userName || "Cliente"} | pide el PIN de 6 digitos al cliente antes de cerrar.`;
+    copy.textContent = pickupMode
+      ? `Pedido #${order?.id || "--"} | ${order?.userName || "Cliente"} | pide el PIN de recogida antes de recibir las prendas.`
+      : `Pedido #${order?.id || "--"} | ${order?.userName || "Cliente"} | pide el PIN de entrega antes de cerrar el servicio.`;
   }
   if (message) {
     message.textContent = "";
@@ -3862,15 +3936,21 @@ async function repartidorUpdateStatus(ev) {
     return;
   }
 
+  let pickupProof = null;
   let deliveryProof = null;
+  if (targetStatus === "recogido al cliente") {
+    pickupProof = await showDeliveryProofDialog(order, { mode: "pickup" });
+    if (!pickupProof) return;
+  }
+
   if (targetStatus === "entregado al cliente") {
-    deliveryProof = await showDeliveryProofDialog(order);
+    deliveryProof = await showDeliveryProofDialog(order, { mode: "delivery" });
     if (!deliveryProof) return;
   }
 
   try {
     setButtonBusy(trigger, true, "Actualizando...");
-    await apiPut(`/orders/${orderId}/status`, { status: targetStatus, lbs, deliveryProof });
+    await apiPut(`/orders/${orderId}/status`, { status: targetStatus, lbs, pickupProof, deliveryProof });
     showSuccess(`Pedido #${orderId} actualizado a ${formatStatusLabel(targetStatus)}.`);
     await loadAll();
   } catch (err) {

@@ -156,6 +156,21 @@ function buildDeliveryCode(order) {
   return String(codeNumber).padStart(DELIVERY_CODE_LENGTH, "0");
 }
 
+function buildPickupCode(order) {
+  const safeOrder = normalizeOrderForPublic(order) || {};
+  const createdAt = safeOrder.createdAt ? new Date(safeOrder.createdAt) : null;
+  const source = [
+    "pickup",
+    safeOrder.id || "",
+    safeOrder.userId || "",
+    createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : "",
+  ].join(":");
+  const secret = process.env.DELIVERY_CODE_SECRET || JWT_SECRET;
+  const digest = crypto.createHmac("sha256", secret).update(source).digest("hex");
+  const codeNumber = Number.parseInt(digest.slice(0, 12), 16) % 10 ** DELIVERY_CODE_LENGTH;
+  return String(codeNumber).padStart(DELIVERY_CODE_LENGTH, "0");
+}
+
 function normalizeDeliveryCode(value) {
   return String(value || "").replace(/\D/g, "").slice(0, DELIVERY_CODE_LENGTH);
 }
@@ -171,9 +186,24 @@ function canExposeDeliveryCode(order, user) {
   );
 }
 
+function canExposePickupCode(order, user) {
+  const safeOrder = normalizeOrderForPublic(order) || {};
+  const status = normalizeRequestedStatus(safeOrder.status);
+  return (
+    canExposeDeliveryCode(safeOrder, user) &&
+    ["pendiente", "asignado", "en camino a recoger"].includes(status)
+  );
+}
+
 function publicOrder(order, user) {
   const safeOrder = normalizeOrderForPublic(order);
   if (!safeOrder) return safeOrder;
+
+  if (canExposePickupCode(safeOrder, user)) {
+    safeOrder.pickupCode = buildPickupCode(safeOrder);
+  } else {
+    delete safeOrder.pickupCode;
+  }
 
   if (canExposeDeliveryCode(safeOrder, user)) {
     safeOrder.deliveryCode = buildDeliveryCode(safeOrder);
@@ -524,6 +554,31 @@ function normalizeDeliveryProofInput(input, user, order) {
       byName: asText(user?.name) || "Repartidor",
       deliveryCodeVerified: true,
       deliveryCodeVerifiedAt: verifiedAt,
+    },
+  };
+}
+
+function normalizePickupProofInput(input, user, order) {
+  const proof = input && typeof input === "object" ? input : {};
+  const pickupCode = normalizeDeliveryCode(proof.pickupCode || proof.deliveryCode || proof.code);
+
+  if (pickupCode.length !== DELIVERY_CODE_LENGTH) {
+    return { error: "Indica el codigo de recogida de 6 digitos." };
+  }
+
+  if (pickupCode !== buildPickupCode(order)) {
+    return { error: "El codigo de recogida no coincide con la cuenta del cliente." };
+  }
+
+  const verifiedAt = new Date();
+
+  return {
+    value: {
+      pickedUpAt: verifiedAt,
+      byUserId: Number.isFinite(Number(user?.id)) ? Number(user.id) : null,
+      byName: asText(user?.name) || "Repartidor",
+      pickupCodeVerified: true,
+      pickupCodeVerifiedAt: verifiedAt,
     },
   };
 }
@@ -1110,7 +1165,7 @@ app.put(
   requireRole("repartidor"),
   asyncHandler(async (req, res) => {
     const orderId = Number(req.params.id);
-    const { status, lbs, deliveryProof } = req.body || {};
+    const { status, lbs, deliveryProof, pickupProof } = req.body || {};
     const normalizedStatus = normalizeRequestedStatus(status);
 
     if (!Number.isInteger(orderId) || orderId <= 0) {
@@ -1142,6 +1197,15 @@ app.put(
       return res.status(400).json({ message: "Las libras indicadas no son validas." });
     }
 
+    let normalizedPickupProof = null;
+    if (normalizedStatus === "recogido al cliente") {
+      const proofResult = normalizePickupProofInput(pickupProof, req.user, order);
+      if (proofResult.error) {
+        return res.status(400).json({ message: proofResult.error });
+      }
+      normalizedPickupProof = proofResult.value;
+    }
+
     let normalizedDeliveryProof = null;
     if (normalizedStatus === "entregado al cliente") {
       const proofResult = normalizeDeliveryProofInput(deliveryProof, req.user, order);
@@ -1157,6 +1221,9 @@ app.put(
     }
     if (normalizedDeliveryProof) {
       order.deliveryProof = normalizedDeliveryProof;
+    }
+    if (normalizedPickupProof) {
+      order.pickupProof = normalizedPickupProof;
     }
 
     addHistory(order, normalizedStatus, "repartidor");

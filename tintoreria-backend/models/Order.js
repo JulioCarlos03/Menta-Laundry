@@ -79,6 +79,33 @@ const deliveryProofSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const pickupProofSchema = new mongoose.Schema(
+  {
+    pickedUpAt: {
+      type: Date,
+      default: Date.now,
+    },
+    byUserId: {
+      type: Number,
+      default: null,
+    },
+    byName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    pickupCodeVerified: {
+      type: Boolean,
+      default: false,
+    },
+    pickupCodeVerifiedAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
   {
     id: {
@@ -200,6 +227,10 @@ const orderSchema = new mongoose.Schema(
     },
     deliveryProof: {
       type: deliveryProofSchema,
+      default: null,
+    },
+    pickupProof: {
+      type: pickupProofSchema,
       default: null,
     },
   },

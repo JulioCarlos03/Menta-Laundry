@@ -224,16 +224,33 @@ function buildDeliveryCode(order) {
   return String(codeNumber).padStart(DELIVERY_CODE_LENGTH, "0");
 }
 
+function buildPickupCode(order) {
+  const createdAt = order?.createdAt ? new Date(order.createdAt) : null;
+  const source = [
+    "pickup",
+    order?.id || "",
+    order?.userId || "",
+    createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : "",
+  ].join(":");
+  const secret = process.env.DELIVERY_CODE_SECRET || process.env.JWT_SECRET || "legacy-demo-delivery-code";
+  const digest = crypto.createHmac("sha256", secret).update(source).digest("hex");
+  const codeNumber = Number.parseInt(digest.slice(0, 12), 16) % 10 ** DELIVERY_CODE_LENGTH;
+  return String(codeNumber).padStart(DELIVERY_CODE_LENGTH, "0");
+}
+
 function withDeliveryCode(order) {
   if (!order || order.channel !== "domicilio") return order;
   const status = normalizeRequestedStatus(order.status);
   if (["entregado al cliente", "cancelado"].includes(status)) {
-    const { deliveryCode, ...safe } = order;
+    const { deliveryCode, pickupCode, ...safe } = order;
     return safe;
   }
 
   return {
     ...order,
+    ...(["pendiente", "asignado", "en camino a recoger"].includes(status)
+      ? { pickupCode: buildPickupCode(order) }
+      : {}),
     deliveryCode: buildDeliveryCode(order),
   };
 }
@@ -277,6 +294,31 @@ function normalizeDeliveryProofInput(input, order) {
       byName: "Repartidor",
       deliveryCodeVerified: true,
       deliveryCodeVerifiedAt: verifiedAt,
+    },
+  };
+}
+
+function normalizePickupProofInput(input, order) {
+  const proof = input && typeof input === "object" ? input : {};
+  const pickupCode = normalizeDeliveryCode(proof.pickupCode || proof.deliveryCode || proof.code);
+
+  if (pickupCode.length !== DELIVERY_CODE_LENGTH) {
+    return { error: "Indica el codigo de recogida de 6 digitos." };
+  }
+
+  if (pickupCode !== buildPickupCode(order)) {
+    return { error: "El codigo de recogida no coincide con la cuenta del cliente." };
+  }
+
+  const verifiedAt = nowISO();
+
+  return {
+    value: {
+      pickedUpAt: verifiedAt,
+      byUserId: null,
+      byName: "Repartidor",
+      pickupCodeVerified: true,
+      pickupCodeVerifiedAt: verifiedAt,
     },
   };
 }
@@ -433,13 +475,22 @@ app.put("/api/orders/:id/assign", (req, res) => {
 // Cambiar estado + lbs (repartidor)
 app.put("/api/orders/:id/status", (req, res) => {
   const orderId = Number(req.params.id);
-  const { status, lbs, deliveryProof } = req.body || {};
+  const { status, lbs, deliveryProof, pickupProof } = req.body || {};
   const normalizedStatus = normalizeRequestedStatus(status);
 
   const order = orders.find((o) => o.id === orderId);
   if (!order) return res.status(404).json({ message: "Pedido no encontrado" });
 
   if (!status) return res.status(400).json({ message: "Falta el estado" });
+
+  let normalizedPickupProof = null;
+  if (normalizedStatus === "recogido al cliente") {
+    const proofResult = normalizePickupProofInput(pickupProof, order);
+    if (proofResult.error) {
+      return res.status(400).json({ message: proofResult.error });
+    }
+    normalizedPickupProof = proofResult.value;
+  }
 
   let normalizedDeliveryProof = null;
   if (normalizedStatus === "entregado al cliente") {
@@ -458,6 +509,9 @@ app.put("/api/orders/:id/status", (req, res) => {
   }
   if (normalizedDeliveryProof) {
     order.deliveryProof = normalizedDeliveryProof;
+  }
+  if (normalizedPickupProof) {
+    order.pickupProof = normalizedPickupProof;
   }
 
   addHistory(order, normalizedStatus, "repartidor");
