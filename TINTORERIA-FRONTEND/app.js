@@ -1528,6 +1528,7 @@ function ensureSecondaryEnhancements() {
     screenActivity: "AC",
     screenPremium: "PR",
     screenDelivered: "OK",
+    screenProduction: "OP",
     screenRiders: "RP",
     screenLocal: "LC",
     screenAccount: "CT",
@@ -1812,7 +1813,7 @@ function getAllowedScreensForCurrentRole() {
     case "repartidor":
       return ["screenHome", "screenDelivered", "screenAccount"];
     case "cajera":
-      return ["screenHome", "screenAccount"];
+      return ["screenHome", "screenProduction", "screenAccount"];
     default:
       return ["screenHome"];
   }
@@ -2058,6 +2059,7 @@ function getScreenRendererMap() {
     case "cajera":
       return {
         screenHome: renderCashierHome,
+        screenProduction: renderCashierProduction,
       };
     default:
       return {};
@@ -2300,6 +2302,7 @@ function updateUIByRole() {
   const navActivity = qs("[data-screen-target='screenActivity']");
   const navPremium = qs("[data-screen-target='screenPremium']");
   const navDelivered = qs("#navDelivered");
+  const navProduction = qs("#navProduction");
   const navRiders = qs("#navRiders");
   const navLocal = qs("#navLocal");
 
@@ -2315,7 +2318,7 @@ function updateUIByRole() {
 
   // reset
   show(navActivity); show(navPremium);
-  hide(navDelivered); hide(navRiders); hide(navLocal);
+  hide(navDelivered); hide(navProduction); hide(navRiders); hide(navLocal);
 
   show(nextOrderCard); show(quickOrderCard); show(serviceCard);
   hide(gestorPanel); hide(repPanel); hide(cashierPanel);
@@ -2336,7 +2339,7 @@ function updateUIByRole() {
   // Gestor
   if (currentUser.role === "gestor") {
     hide(navActivity); hide(navPremium);
-    hide(navDelivered); show(navRiders); show(navLocal);
+    hide(navDelivered); hide(navProduction); show(navRiders); show(navLocal);
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(gestorPanel);
     qs("#welcomeSubtitle").textContent = "Administra pedidos, asignaciones, local y repartidores.";
@@ -2347,7 +2350,7 @@ function updateUIByRole() {
   // Repartidor
   if (currentUser.role === "repartidor") {
     hide(navActivity); hide(navPremium);
-    show(navDelivered); hide(navRiders); hide(navLocal);
+    show(navDelivered); hide(navProduction); hide(navRiders); hide(navLocal);
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(repPanel);
     qs("#welcomeSubtitle").textContent = "Gestiona tus pedidos asignados y actualiza estados.";
@@ -2358,7 +2361,7 @@ function updateUIByRole() {
   // Cajera
   if (currentUser.role === "cajera") {
     hide(navActivity); hide(navPremium);
-    hide(navDelivered); hide(navRiders); hide(navLocal);
+    hide(navDelivered); show(navProduction); hide(navRiders); hide(navLocal);
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(cashierPanel);
     qs("#welcomeSubtitle").textContent = "Caja: registra pedidos del local con libras.";
@@ -2729,22 +2732,18 @@ async function repartidorUpdateStatus(ev) {
    CAJERA: CREATE LOCAL ORDER
 ============================================================ */
 function renderCashierHome() {
-  const panel = qs("#cashierHomePanel");
+  qs("#cashierLocalOpsCard")?.remove();
+}
+
+function renderCashierProduction() {
+  const panel = qs("#cashierProductionPanel");
   if (!panel) return;
 
-  let opsCard = qs("#cashierLocalOpsCard");
-  if (!opsCard) {
-    opsCard = document.createElement("div");
-    opsCard.id = "cashierLocalOpsCard";
-    opsCard.className = "card card-spaced local-ops-card";
-    panel.appendChild(opsCard);
-  }
-
-  renderLocalOperationsPanel(opsCard, {
+  panel.innerHTML = `<div id="cashierLocalOpsCard" class="card local-ops-card"></div>`;
+  renderLocalOperationsPanel(qs("#cashierLocalOpsCard"), {
     title: "Mesa de produccion",
-    subtitle: "Recibe, pesa y mueve los pedidos del local sin salir del panel de caja.",
+    subtitle: "Recibe, pesa y mueve los pedidos del local desde una vista dedicada.",
     orders: getLocalOperationOrders(),
-    compact: true,
   });
 }
 
