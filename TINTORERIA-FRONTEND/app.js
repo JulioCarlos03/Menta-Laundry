@@ -43,6 +43,14 @@ let homePickupLeafletAccuracy = null;
 let riderLocation = null;
 let gestorZoneFilter = "all";
 let clientActivityFilter = "all";
+const operationalHistoryFilters = {
+  query: "",
+  status: "all",
+  source: "all",
+  zone: "all",
+  rider: "all",
+  date: "all",
+};
 let backendWarmPromise = null;
 let backendWarmAt = 0;
 let autoRefreshTimer = null;
@@ -1532,6 +1540,7 @@ function ensureSecondaryEnhancements() {
     screenControl: "CO",
     screenRiders: "RP",
     screenLocal: "LC",
+    screenHistory: "HI",
     screenAccount: "CT",
   };
 
@@ -1810,11 +1819,11 @@ function getAllowedScreensForCurrentRole() {
     case "cliente":
       return ["screenHome", "screenActivity", "screenPremium", "screenAccount"];
     case "gestor":
-      return ["screenHome", "screenControl", "screenRiders", "screenLocal", "screenAccount"];
+      return ["screenHome", "screenControl", "screenRiders", "screenLocal", "screenHistory", "screenAccount"];
     case "repartidor":
       return ["screenHome", "screenDelivered", "screenAccount"];
     case "cajera":
-      return ["screenHome", "screenProduction", "screenAccount"];
+      return ["screenHome", "screenProduction", "screenHistory", "screenAccount"];
     default:
       return ["screenHome"];
   }
@@ -2052,6 +2061,7 @@ function getScreenRendererMap() {
         screenControl: renderGestorControl,
         screenRiders: renderGestorRidersActivity,
         screenLocal: renderGestorLocal,
+        screenHistory: renderOperationalHistory,
       };
     case "repartidor":
       return {
@@ -2062,6 +2072,7 @@ function getScreenRendererMap() {
       return {
         screenHome: renderCashierHome,
         screenProduction: renderCashierProduction,
+        screenHistory: renderOperationalHistory,
       };
     default:
       return {};
@@ -2090,13 +2101,17 @@ function renderScreenForCurrentRole(screenId, { force = false } = {}) {
 
 async function ensureScreenDataForCurrentRole(screenId) {
   const resolvedScreen = resolveRoleScreen(screenId);
-  if (currentUser?.role === "gestor" && resolvedScreen === "screenLocal" && !dashboardResourceState.localOrdersLoaded) {
+  const needsLocalOrders =
+    (currentUser?.role === "cajera" && ["screenHome", "screenProduction", "screenHistory"].includes(resolvedScreen)) ||
+    (currentUser?.role === "gestor" && ["screenLocal", "screenHistory"].includes(resolvedScreen));
+
+  if (needsLocalOrders && !dashboardResourceState.localOrdersLoaded) {
     const tbody = qs("#localOrdersBody");
-    if (tbody) {
+    if (resolvedScreen === "screenLocal" && tbody) {
       tbody.innerHTML = tableEmptyRow(8, "Cargando pedidos del local...");
     }
 
-    setAppLoadingState(true, "Preparando pedidos del local...");
+    setAppLoadingState(true, resolvedScreen === "screenHistory" ? "Preparando historial operativo..." : "Preparando pedidos del local...");
     try {
       localOrdersCache = await apiGet("/local-orders").catch(() => []);
       dashboardResourceState.localOrdersLoaded = true;
@@ -2161,20 +2176,28 @@ function applyDashboardPayload(payload = {}, { merge = false } = {}) {
 async function fetchDashboardPayload(screenId = getActiveScreenId()) {
   const resolvedScreen = resolveRoleScreen(screenId);
   const bootstrapPath = `/bootstrap?screen=${encodeURIComponent(resolvedScreen)}`;
+  const shouldFetchLocalOrders =
+    (currentUser?.role === "cajera" && ["screenHome", "screenProduction", "screenHistory"].includes(resolvedScreen)) ||
+    (currentUser?.role === "gestor" && ["screenLocal", "screenHistory"].includes(resolvedScreen));
+
   try {
     const payload = await apiGet(bootstrapPath);
+    const bootstrapHasLocalOrders = Array.isArray(payload?.localOrders);
+    const localOrders = bootstrapHasLocalOrders
+      ? payload.localOrders
+      : shouldFetchLocalOrders
+        ? await apiGet("/local-orders").catch(() => [])
+        : [];
+
     return {
       user: payload?.user || null,
       orders: Array.isArray(payload?.orders) ? payload.orders : [],
       repartidores: Array.isArray(payload?.repartidores) ? payload.repartidores : [],
-      localOrders: Array.isArray(payload?.localOrders) ? payload.localOrders : [],
-      localOrdersLoaded: Boolean(payload?.localOrdersLoaded),
+      localOrders,
+      localOrdersLoaded: bootstrapHasLocalOrders ? Boolean(payload?.localOrdersLoaded) || shouldFetchLocalOrders : shouldFetchLocalOrders,
     };
   } catch (_error) {
     const shouldFetchRiders = currentUser?.role === "gestor";
-    const shouldFetchLocalOrders =
-      currentUser?.role === "cajera" ||
-      (currentUser?.role === "gestor" && resolvedScreen === "screenLocal");
 
     const [orders, repartidores, localOrders] = await Promise.all([
       apiGet("/orders"),
@@ -2308,6 +2331,7 @@ function updateUIByRole() {
   const navControl = qs("#navControl");
   const navRiders = qs("#navRiders");
   const navLocal = qs("#navLocal");
+  const navHistory = qs("#navHistory");
 
   // cards cliente
   const nextOrderCard = qs("#nextOrderCard");
@@ -2321,7 +2345,7 @@ function updateUIByRole() {
 
   // reset
   show(navActivity); show(navPremium);
-  hide(navDelivered); hide(navProduction); hide(navControl); hide(navRiders); hide(navLocal);
+  hide(navDelivered); hide(navProduction); hide(navControl); hide(navRiders); hide(navLocal); hide(navHistory);
 
   show(nextOrderCard); show(quickOrderCard); show(serviceCard);
   hide(gestorPanel); hide(repPanel); hide(cashierPanel);
@@ -2342,7 +2366,7 @@ function updateUIByRole() {
   // Gestor
   if (currentUser.role === "gestor") {
     hide(navActivity); hide(navPremium);
-    hide(navDelivered); hide(navProduction); show(navControl); show(navRiders); show(navLocal);
+    hide(navDelivered); hide(navProduction); show(navControl); show(navRiders); show(navLocal); show(navHistory);
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(gestorPanel);
     qs("#welcomeSubtitle").textContent = "Administra pedidos, asignaciones, local y repartidores.";
@@ -2353,7 +2377,7 @@ function updateUIByRole() {
   // Repartidor
   if (currentUser.role === "repartidor") {
     hide(navActivity); hide(navPremium);
-    show(navDelivered); hide(navProduction); hide(navControl); hide(navRiders); hide(navLocal);
+    show(navDelivered); hide(navProduction); hide(navControl); hide(navRiders); hide(navLocal); hide(navHistory);
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(repPanel);
     qs("#welcomeSubtitle").textContent = "Gestiona tus pedidos asignados y actualiza estados.";
@@ -2364,7 +2388,7 @@ function updateUIByRole() {
   // Cajera
   if (currentUser.role === "cajera") {
     hide(navActivity); hide(navPremium);
-    hide(navDelivered); show(navProduction); hide(navControl); hide(navRiders); hide(navLocal);
+    hide(navDelivered); show(navProduction); hide(navControl); hide(navRiders); hide(navLocal); show(navHistory);
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(cashierPanel);
     qs("#welcomeSubtitle").textContent = "Caja: registra pedidos del local con libras.";
@@ -4380,8 +4404,18 @@ const ZONE_REFERENCE_POINTS = {
   ],
 };
 
-function getOrderById(id) {
-  let order = ordersCache.find((item) => item.id == id);
+function getOrderById(id, preferredSource = "") {
+  const source = String(preferredSource || "").toLowerCase();
+  let order = null;
+
+  if (source === "local") {
+    order = localOrdersCache.find((item) => item.id == id);
+    if (!order) order = ordersCache.find((item) => item.id == id && item.channel === "local");
+  } else if (source === "domicilio") {
+    order = ordersCache.find((item) => item.id == id && item.channel !== "local");
+  }
+
+  if (!order) order = ordersCache.find((item) => item.id == id);
   if (!order) order = localOrdersCache.find((item) => item.id == id);
   return order;
 }
@@ -9044,6 +9078,396 @@ function renderGestorLocal() {
   bindInvoiceAndDetailButtons(currentMobileBoard);
 }
 
+function getOperationalHistorySource(order, fallbackSource = "") {
+  if (fallbackSource) return fallbackSource;
+  return order?.channel === "local" ? "local" : "domicilio";
+}
+
+function getOperationalHistorySourceLabel(source) {
+  return source === "local" ? "Local" : "Domicilio";
+}
+
+function getOperationalHistoryRows() {
+  const rowsByKey = new Map();
+  const addRow = (order, fallbackSource = "") => {
+    if (!order) return;
+    const source = getOperationalHistorySource(order, fallbackSource);
+    const key = `${source}:${order.id}`;
+    const breakdown = buildOrderChargeBreakdown(order);
+    const flags = source === "domicilio" ? getOrderHighlightFlags(order) : {
+      hasGps: false,
+      noGps: false,
+      delayed: isOrderDelayed(order),
+    };
+    const sortTime = new Date(`${order.date || "1970-01-01"}T${order.time || "00:00"}`).getTime() || 0;
+
+    rowsByKey.set(key, {
+      key,
+      order,
+      source,
+      sourceLabel: getOperationalHistorySourceLabel(source),
+      flags,
+      total: Number(breakdown.total || 0),
+      weightPending: breakdown.weightPending,
+      sortTime,
+      latest: getOrderLatestMovementText(order),
+    });
+  };
+
+  ordersCache.forEach((order) => addRow(order));
+  localOrdersCache.forEach((order) => addRow(order, "local"));
+
+  return Array.from(rowsByKey.values()).sort((a, b) => {
+    if (b.sortTime !== a.sortTime) return b.sortTime - a.sortTime;
+    return Number(b.order?.id || 0) - Number(a.order?.id || 0);
+  });
+}
+
+function getOperationalHistoryDateCutoff(filterKey) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (filterKey === "today") return today.getTime();
+  if (filterKey === "week") return today.getTime() - 6 * 24 * 60 * 60 * 1000;
+  if (filterKey === "month") return today.getTime() - 29 * 24 * 60 * 60 * 1000;
+  return null;
+}
+
+function matchesOperationalHistoryDate(order, filterKey) {
+  if (!filterKey || filterKey === "all") return true;
+  const cutoff = getOperationalHistoryDateCutoff(filterKey);
+  if (!Number.isFinite(cutoff)) return true;
+  const orderDate = new Date(`${order?.date || "1970-01-01"}T00:00`).getTime();
+  return Number.isFinite(orderDate) && orderDate >= cutoff;
+}
+
+function matchesOperationalHistoryStatus(row, filterKey) {
+  const status = normalizeStatusValue(row.order?.status);
+  if (!filterKey || filterKey === "all") return true;
+  if (filterKey === "active") return !isClosedOrderStatus(status);
+  if (filterKey === "pending") return status === "pendiente";
+  if (filterKey === "delayed") return Boolean(row.flags.delayed);
+  if (filterKey === "no_gps") return row.source === "domicilio" && row.flags.noGps;
+  if (filterKey === "treatment") return ["recibido en local", "en tratamiento"].includes(status);
+  if (filterKey === "ready") return status === "listo para entrega";
+  if (filterKey === "delivered") return isFinalDeliveryStatus(status);
+  if (filterKey === "cancelled") return isCancelledStatus(status);
+  return true;
+}
+
+function getOperationalHistorySearchText(row) {
+  const order = row.order || {};
+  return [
+    order.id,
+    row.sourceLabel,
+    order.userName,
+    order.phone,
+    order.email,
+    order.address,
+    order.zone,
+    order.repartidorName,
+    order.status,
+    getOrderPacks(order).join(" "),
+    row.latest,
+  ].join(" ").toLowerCase();
+}
+
+function getFilteredOperationalHistoryRows() {
+  const query = String(operationalHistoryFilters.query || "").trim().toLowerCase();
+  const riderFilter = String(operationalHistoryFilters.rider || "all");
+
+  return getOperationalHistoryRows().filter((row) => {
+    const order = row.order || {};
+    if (query && !getOperationalHistorySearchText(row).includes(query)) return false;
+    if (operationalHistoryFilters.source !== "all" && row.source !== operationalHistoryFilters.source) return false;
+    if (operationalHistoryFilters.zone !== "all" && normalizeZoneName(order.zone) !== operationalHistoryFilters.zone) return false;
+    if (riderFilter !== "all" && String(order.repartidorId || "") !== riderFilter) return false;
+    if (!matchesOperationalHistoryStatus(row, operationalHistoryFilters.status)) return false;
+    if (!matchesOperationalHistoryDate(order, operationalHistoryFilters.date)) return false;
+    return true;
+  });
+}
+
+function renderHistoryOption(value, label, currentValue) {
+  return `<option value="${escapeHtml(value)}" ${String(currentValue) === String(value) ? "selected" : ""}>${escapeHtml(label)}</option>`;
+}
+
+function renderOperationalHistoryMetric(label, value, note = "") {
+  return `
+    <div class="history-metric">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      ${note ? `<small>${escapeHtml(note)}</small>` : ""}
+    </div>
+  `;
+}
+
+function renderOperationalHistoryRow(row) {
+  const order = row.order || {};
+  const charge = row.weightPending && row.total <= 0 ? "Por confirmar" : row.weightPending ? `Desde ${money(row.total)}` : money(row.total);
+  const sourceClass = row.source === "local" ? "history-source-local" : "history-source-domicilio";
+  return `
+    <tr class="${row.flags.delayed ? "gestor-row-delayed" : ""}">
+      <td>${escapeHtml(String(order.id || "--"))}</td>
+      <td>
+        <div class="table-main">${escapeHtml(order.userName || "Cliente")}</div>
+        <div class="table-sub">${escapeHtml(getOrderContactPhone(order) || order.email || "Sin contacto")}</div>
+      </td>
+      <td><span class="history-source-badge ${sourceClass}">${escapeHtml(row.sourceLabel)}</span></td>
+      <td>
+        <div class="table-main">${escapeHtml(normalizeZoneName(order.zone))}</div>
+        <div class="table-sub">${escapeHtml(order.address || (row.source === "local" ? "Entrega en tienda" : "Direccion pendiente"))}</div>
+      </td>
+      <td>
+        <div class="table-main">${escapeHtml(fmtDate(order.date))}</div>
+        <div class="table-sub">${escapeHtml(fmtTime(order.time) || "--")}</div>
+      </td>
+      <td>${renderStatusBadge(order.status)}</td>
+      <td>
+        <div class="table-main">${escapeHtml(order.repartidorName || "Sin asignar")}</div>
+        <div class="table-sub">${escapeHtml(row.latest)}</div>
+      </td>
+      <td>${escapeHtml(charge)}</td>
+      <td>
+        <div class="history-actions">
+          <button class="btn btn-small" type="button" data-factura="${order.id}" data-order-source="${row.source}">Factura</button>
+          <button class="btn btn-small btn-outline" type="button" data-detalle="${order.id}" data-order-source="${row.source}">Detalle</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function renderOperationalHistoryMobileCard(row) {
+  const order = row.order || {};
+  const charge = row.weightPending && row.total <= 0 ? "Por confirmar" : row.weightPending ? `Desde ${money(row.total)}` : money(row.total);
+  const sourceClass = row.source === "local" ? "history-source-local" : "history-source-domicilio";
+  return `
+    <article class="history-mobile-card ${row.flags.delayed ? "history-mobile-card-alert" : ""}">
+      <div class="history-mobile-head">
+        <div>
+          <span>Pedido #${escapeHtml(String(order.id || "--"))}</span>
+          <h4>${escapeHtml(order.userName || "Cliente")}</h4>
+        </div>
+        ${renderStatusBadge(order.status)}
+      </div>
+      <div class="history-mobile-meta">
+        <span class="history-source-badge ${sourceClass}">${escapeHtml(row.sourceLabel)}</span>
+        <span>${escapeHtml(normalizeZoneName(order.zone))}</span>
+        <span>${escapeHtml(fmtDate(order.date))} ${escapeHtml(fmtTime(order.time) || "--")}</span>
+      </div>
+      <div class="history-mobile-grid">
+        <div><span>Contacto</span><strong>${escapeHtml(getOrderContactPhone(order) || order.email || "--")}</strong></div>
+        <div><span>Repartidor</span><strong>${escapeHtml(order.repartidorName || "Sin asignar")}</strong></div>
+        <div><span>Total</span><strong>${escapeHtml(charge)}</strong></div>
+        <div><span>Movimiento</span><strong>${escapeHtml(row.latest)}</strong></div>
+      </div>
+      <div class="history-actions">
+        <button class="btn btn-small" type="button" data-factura="${order.id}" data-order-source="${row.source}">Factura</button>
+        <button class="btn btn-small btn-outline" type="button" data-detalle="${order.id}" data-order-source="${row.source}">Detalle</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderOperationalHistoryResults() {
+  const rows = getFilteredOperationalHistoryRows();
+  const today = new Date().toISOString().slice(0, 10);
+  const activeCount = rows.filter((row) => !isClosedOrderStatus(row.order?.status)).length;
+  const deliveredCount = rows.filter((row) => isFinalDeliveryStatus(row.order?.status)).length;
+  const todayCount = rows.filter((row) => row.order?.date === today).length;
+  const revenue = rows.reduce((sum, row) => sum + row.total, 0);
+
+  const metrics = qs("#historyMetrics");
+  if (metrics) {
+    metrics.innerHTML = [
+      renderOperationalHistoryMetric("Resultados", String(rows.length), "Pedidos segun filtros"),
+      renderOperationalHistoryMetric("Hoy", String(todayCount), "Agenda del dia"),
+      renderOperationalHistoryMetric("Activos", String(activeCount), "Aun en operacion"),
+      renderOperationalHistoryMetric("Cerrados", String(deliveredCount), "Entregados al cliente"),
+      renderOperationalHistoryMetric("Monto estimado", money(revenue), "Segun pedidos visibles"),
+    ].join("");
+  }
+
+  const summary = qs("#historyResultsSummary");
+  if (summary) {
+    summary.textContent = `${rows.length} pedidos visibles | ${activeCount} activos | ${deliveredCount} cerrados`;
+  }
+
+  const tbody = qs("#historyTableBody");
+  if (tbody) {
+    tbody.innerHTML = rows.length
+      ? rows.map(renderOperationalHistoryRow).join("")
+      : tableEmptyRow(9, "No hay pedidos que coincidan con estos filtros.");
+  }
+
+  const mobileBoard = qs("#historyMobileBoard");
+  if (mobileBoard) {
+    mobileBoard.innerHTML = rows.length
+      ? rows.map(renderOperationalHistoryMobileCard).join("")
+      : `<div class="gestor-mobile-empty">No hay pedidos que coincidan con estos filtros.</div>`;
+  }
+
+  bindInvoiceAndDetailButtons(tbody);
+  bindInvoiceAndDetailButtons(mobileBoard);
+}
+
+function syncOperationalHistoryFiltersFromDom(panel) {
+  Array.from(panel.querySelectorAll("[data-history-filter]")).forEach((field) => {
+    operationalHistoryFilters[field.dataset.historyFilter] = field.value;
+  });
+}
+
+function setOperationalHistoryFilterInputs(panel) {
+  Array.from(panel.querySelectorAll("[data-history-filter]")).forEach((field) => {
+    const key = field.dataset.historyFilter;
+    field.value = key === "query" ? operationalHistoryFilters.query : operationalHistoryFilters[key] || "all";
+  });
+}
+
+function bindOperationalHistoryFilters(panel) {
+  Array.from(panel.querySelectorAll("[data-history-filter]")).forEach((field) => {
+    const eventName = field.tagName === "INPUT" ? "input" : "change";
+    field.addEventListener(eventName, () => {
+      syncOperationalHistoryFiltersFromDom(panel);
+      renderOperationalHistoryResults();
+    });
+  });
+
+  qs("#historyResetFilters")?.addEventListener("click", () => {
+    Object.assign(operationalHistoryFilters, {
+      query: "",
+      status: "all",
+      source: "all",
+      zone: "all",
+      rider: "all",
+      date: "all",
+    });
+    setOperationalHistoryFilterInputs(panel);
+    renderOperationalHistoryResults();
+  });
+}
+
+function renderOperationalHistory() {
+  const panel = qs("#operationalHistoryPanel");
+  if (!panel) return;
+
+  const rows = getOperationalHistoryRows();
+  const zones = Array.from(new Set(rows.map((row) => normalizeZoneName(row.order?.zone)))).sort((a, b) => a.localeCompare(b, "es"));
+  const riders = repartidoresCache
+    .filter((rider) => rider?.id)
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"));
+
+  if (!zones.includes(operationalHistoryFilters.zone) && operationalHistoryFilters.zone !== "all") {
+    operationalHistoryFilters.zone = "all";
+  }
+  if (!riders.some((rider) => String(rider.id) === String(operationalHistoryFilters.rider)) && operationalHistoryFilters.rider !== "all") {
+    operationalHistoryFilters.rider = "all";
+  }
+
+  panel.innerHTML = `
+    <div class="card operational-history-hero">
+      <div class="executive-head">
+        <div>
+          <div class="card-eyebrow">Historial operativo</div>
+          <div class="card-title">Buscar, filtrar y revisar pedidos</div>
+          <div class="card-secondary">Una vista para gestor y caja con domicilio, local, facturas, detalles y movimientos recientes.</div>
+        </div>
+        <span class="estimate-badge">${rows.length} registrados</span>
+      </div>
+      <div id="historyMetrics" class="history-metrics"></div>
+    </div>
+
+    <div class="card card-spaced history-filter-card">
+      <div class="history-filter-grid">
+        <label class="history-filter history-filter-search">
+          <span>Buscar</span>
+          <input type="search" data-history-filter="query" placeholder="Cliente, telefono, pedido, zona..." value="${escapeHtml(operationalHistoryFilters.query)}">
+        </label>
+        <label class="history-filter">
+          <span>Canal</span>
+          <select data-history-filter="source">
+            ${renderHistoryOption("all", "Todos", operationalHistoryFilters.source)}
+            ${renderHistoryOption("domicilio", "Domicilio", operationalHistoryFilters.source)}
+            ${renderHistoryOption("local", "Local", operationalHistoryFilters.source)}
+          </select>
+        </label>
+        <label class="history-filter">
+          <span>Estado</span>
+          <select data-history-filter="status">
+            ${renderHistoryOption("all", "Todos", operationalHistoryFilters.status)}
+            ${renderHistoryOption("active", "Activos", operationalHistoryFilters.status)}
+            ${renderHistoryOption("pending", "Pendientes", operationalHistoryFilters.status)}
+            ${renderHistoryOption("delayed", "Atrasados", operationalHistoryFilters.status)}
+            ${renderHistoryOption("no_gps", "Sin GPS", operationalHistoryFilters.status)}
+            ${renderHistoryOption("treatment", "En local / tratamiento", operationalHistoryFilters.status)}
+            ${renderHistoryOption("ready", "Listos", operationalHistoryFilters.status)}
+            ${renderHistoryOption("delivered", "Entregados", operationalHistoryFilters.status)}
+            ${renderHistoryOption("cancelled", "Cancelados", operationalHistoryFilters.status)}
+          </select>
+        </label>
+        <label class="history-filter">
+          <span>Zona</span>
+          <select data-history-filter="zone">
+            ${renderHistoryOption("all", "Todas", operationalHistoryFilters.zone)}
+            ${zones.map((zone) => renderHistoryOption(zone, zone, operationalHistoryFilters.zone)).join("")}
+          </select>
+        </label>
+        <label class="history-filter">
+          <span>Repartidor</span>
+          <select data-history-filter="rider">
+            ${renderHistoryOption("all", "Todos", operationalHistoryFilters.rider)}
+            ${riders.map((rider) => renderHistoryOption(String(rider.id), rider.name || `Repartidor ${rider.id}`, operationalHistoryFilters.rider)).join("")}
+          </select>
+        </label>
+        <label class="history-filter">
+          <span>Fecha</span>
+          <select data-history-filter="date">
+            ${renderHistoryOption("all", "Todo el historial", operationalHistoryFilters.date)}
+            ${renderHistoryOption("today", "Hoy", operationalHistoryFilters.date)}
+            ${renderHistoryOption("week", "Ultimos 7 dias", operationalHistoryFilters.date)}
+            ${renderHistoryOption("month", "Ultimos 30 dias", operationalHistoryFilters.date)}
+          </select>
+        </label>
+      </div>
+      <div class="history-filter-actions">
+        <span id="historyResultsSummary">Preparando resultados...</span>
+        <button id="historyResetFilters" class="btn btn-small btn-outline" type="button">Limpiar filtros</button>
+      </div>
+    </div>
+
+    <div class="card card-spaced history-results-card">
+      <div class="executive-head">
+        <div>
+          <div class="card-title">Pedidos encontrados</div>
+          <div class="card-secondary">Tabla para escritorio y tarjetas limpias para telefono.</div>
+        </div>
+      </div>
+      <div class="role-table-wrapper gestor-desktop-table history-table-wrapper">
+        <table class="role-table history-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Cliente</th>
+              <th>Canal</th>
+              <th>Zona / direccion</th>
+              <th>Fecha</th>
+              <th>Estado</th>
+              <th>Repartidor / movimiento</th>
+              <th>Total</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody"></tbody>
+        </table>
+      </div>
+      <div id="historyMobileBoard" class="history-mobile-board"></div>
+    </div>
+  `;
+
+  bindOperationalHistoryFilters(panel);
+  renderOperationalHistoryResults();
+}
+
 function renderRepartidorHome() {
   const assigned = ordersCache.filter((o) => Number(o.repartidorId) === Number(currentUser.id));
   const routePlan = buildRiderRoutePlan(assigned);
@@ -9397,7 +9821,7 @@ function renderRepartidorDelivered() {
 function openInvoice(ev) {
   const trigger = ev?.currentTarget || ev?.target || {};
   const id = trigger.dataset?.factura || trigger.dataset?.detalle || ev;
-  const order = getOrderById(id);
+  const order = getOrderById(id, trigger.dataset?.orderSource);
   if (!order) {
     alert("Pedido no encontrado");
     return;
@@ -9508,7 +9932,7 @@ function openInvoice(ev) {
 function openDetail(ev) {
   const trigger = ev?.currentTarget || ev?.target || {};
   const id = trigger.dataset?.detalle || trigger.dataset?.factura || ev;
-  const order = getOrderById(id);
+  const order = getOrderById(id, trigger.dataset?.orderSource);
   if (!order) {
     alert("Pedido no encontrado");
     return;
