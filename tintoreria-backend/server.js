@@ -124,6 +124,16 @@ const BUSINESS_INFO = {
 };
 const DELIVERY_PROOF_METHODS = new Set(["cliente", "porteria", "recepcion", "familiar", "otro"]);
 const DELIVERY_CODE_LENGTH = 6;
+const LOCAL_ORDER_STATUSES = new Set([
+  "recibido en local",
+  "en tratamiento",
+  "listo para entrega",
+]);
+const LOCAL_STATUS_TRANSITIONS = {
+  "de camino al local": ["recibido en local"],
+  "recibido en local": ["en tratamiento"],
+  "en tratamiento": ["listo para entrega"],
+};
 
 /* ============================================================
    HELPERS
@@ -205,6 +215,23 @@ function normalizeRequestedStatus(value) {
   if (status === "recibido") return "recogido al cliente";
   if (status === "entregado") return "entregado al cliente";
   return status;
+}
+
+function normalizeLocalWorkflowStatus(value, channel = "") {
+  const status = asText(value).toLowerCase();
+  if (!status) return "";
+  if (status === "recibido") return "recibido en local";
+  const normalized = normalizeRequestedStatus(status);
+  if (channel === "local" && normalized === "recogido al cliente") return "recibido en local";
+  return normalized;
+}
+
+function canTransitionLocalStatus(order, nextStatus) {
+  const current = normalizeLocalWorkflowStatus(order?.status, order?.channel);
+  const next = normalizeLocalWorkflowStatus(nextStatus, order?.channel);
+  if (!current || !next) return false;
+  if (current === next) return true;
+  return (LOCAL_STATUS_TRANSITIONS[current] || []).includes(next);
 }
 
 function normalizeDeliveryCode(value) {
@@ -587,13 +614,13 @@ app.post("/api/local-orders", (req, res) => {
     location: null,
     extras: Array.isArray(extras) ? extras : [],
     notes: notes || "",
-    status: "recibido",
+    status: "recibido en local",
     repartidorId: null,
     repartidorName: null,
     lbs: Number(lbs) || 0,
     channel: "local",
     createdAt: nowISO(),
-    history: [{ status: "recibido", by: "cajera", at: nowISO() }],
+    history: [{ status: "recibido en local", by: "cajera", at: nowISO() }],
   };
 
   orders.push(newOrder);
@@ -605,6 +632,49 @@ app.post("/api/local-orders", (req, res) => {
 app.get("/api/local-orders", (req, res) => {
   const localOrders = orders.filter((o) => o.channel === "local");
   res.json(localOrders);
+});
+
+app.put("/api/local-orders/:id/status", (req, res) => {
+  const orderId = Number(req.params.id);
+  const { status, lbs, notes } = req.body || {};
+  const order = orders.find((o) => Number(o.id) === orderId);
+
+  if (!order) return res.status(404).json({ message: "Pedido no encontrado" });
+
+  const currentStatus = normalizeLocalWorkflowStatus(order.status, order.channel);
+  const targetStatus = status ? normalizeLocalWorkflowStatus(status, order.channel) : currentStatus;
+  const canOperateInLocal =
+    order.channel === "local" ||
+    currentStatus === "de camino al local" ||
+    LOCAL_ORDER_STATUSES.has(currentStatus);
+
+  if (!canOperateInLocal) {
+    return res.status(400).json({ message: "Este pedido aun no esta disponible para operacion de local." });
+  }
+
+  if (!LOCAL_ORDER_STATUSES.has(targetStatus)) {
+    return res.status(400).json({ message: "El estado solicitado no pertenece al flujo de local." });
+  }
+
+  if (!canTransitionLocalStatus(order, targetStatus)) {
+    return res.status(400).json({ message: `No puedes pasar de ${order.status} a ${targetStatus}.` });
+  }
+
+  if (lbs !== undefined && (!Number.isFinite(Number(lbs)) || Number(lbs) < 0 || Number(lbs) > 500)) {
+    return res.status(400).json({ message: "Las libras indicadas no son validas." });
+  }
+
+  if (notes !== undefined && !isValidTextField(notes, { min: 0, max: 500, required: false })) {
+    return res.status(400).json({ message: "Las observaciones superan el limite permitido." });
+  }
+
+  const statusChanged = currentStatus !== targetStatus;
+  order.status = targetStatus;
+  if (lbs !== undefined) order.lbs = Number(lbs) || 0;
+  if (notes !== undefined) order.notes = asText(notes);
+  if (statusChanged) addHistory(order, targetStatus, "cajera");
+
+  res.json({ message: "Pedido actualizado en local", order });
 });
 
 /* ============================================================

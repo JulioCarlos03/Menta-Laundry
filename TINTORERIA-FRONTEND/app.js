@@ -2729,7 +2729,23 @@ async function repartidorUpdateStatus(ev) {
    CAJERA: CREATE LOCAL ORDER
 ============================================================ */
 function renderCashierHome() {
-  // Nada extra por ahora
+  const panel = qs("#cashierHomePanel");
+  if (!panel) return;
+
+  let opsCard = qs("#cashierLocalOpsCard");
+  if (!opsCard) {
+    opsCard = document.createElement("div");
+    opsCard.id = "cashierLocalOpsCard";
+    opsCard.className = "card card-spaced local-ops-card";
+    panel.appendChild(opsCard);
+  }
+
+  renderLocalOperationsPanel(opsCard, {
+    title: "Mesa de produccion",
+    subtitle: "Recibe, pesa y mueve los pedidos del local sin salir del panel de caja.",
+    orders: getLocalOperationOrders(),
+    compact: true,
+  });
 }
 
 async function onCreateLocalOrder(e) {
@@ -8671,6 +8687,225 @@ async function gestorAssign(ev) {
   }
 }
 
+const LOCAL_STAGE_CONFIG = [
+  {
+    key: "incoming",
+    label: "Por recibir",
+    title: "Camino al local",
+    empty: "No hay rutas llegando al local.",
+    actionLabel: "Recibir pedido",
+    targetStatus: "recibido en local",
+  },
+  {
+    key: "received",
+    label: "Recibidos",
+    title: "Recepcion y pesaje",
+    empty: "No hay pedidos esperando tratamiento.",
+    actionLabel: "Enviar a tratamiento",
+    targetStatus: "en tratamiento",
+  },
+  {
+    key: "treatment",
+    label: "Tratamiento",
+    title: "Lavado, planchado y cuidado",
+    empty: "No hay prendas en tratamiento.",
+    actionLabel: "Marcar listo",
+    targetStatus: "listo para entrega",
+  },
+  {
+    key: "ready",
+    label: "Listos",
+    title: "Preparar salida final",
+    empty: "No hay pedidos listos para entrega.",
+    actionLabel: "",
+    targetStatus: "",
+  },
+];
+
+function getLocalOperationStatus(order) {
+  const raw = String(order?.status || "").trim().toLowerCase();
+  if (raw === "recibido") return "recibido en local";
+  const normalized = normalizeStatusValue(raw);
+  if (order?.channel === "local" && normalized === "recogido al cliente") return "recibido en local";
+  return normalized;
+}
+
+function isLocalOperationOrder(order) {
+  const status = getLocalOperationStatus(order);
+  return ["de camino al local", "recibido en local", "en tratamiento", "listo para entrega"].includes(status);
+}
+
+function getLocalOperationOrders() {
+  const byId = new Map();
+  [...ordersCache, ...localOrdersCache].forEach((order) => {
+    if (!order || !isLocalOperationOrder(order)) return;
+    byId.set(String(order.id), order);
+  });
+  return sortByNewestId(Array.from(byId.values()));
+}
+
+function getLocalStageKey(order) {
+  const status = getLocalOperationStatus(order);
+  if (status === "de camino al local") return "incoming";
+  if (status === "recibido en local") return "received";
+  if (status === "en tratamiento") return "treatment";
+  if (status === "listo para entrega") return "ready";
+  return "received";
+}
+
+function getLocalStageBuckets(orders) {
+  return LOCAL_STAGE_CONFIG.reduce((buckets, stage) => {
+    buckets[stage.key] = [];
+    return buckets;
+  }, {});
+}
+
+function buildLocalStageBuckets(orders) {
+  const buckets = getLocalStageBuckets(orders);
+  orders.forEach((order) => {
+    const key = getLocalStageKey(order);
+    if (buckets[key]) buckets[key].push(order);
+  });
+  return buckets;
+}
+
+function renderLocalOpsMetrics(buckets) {
+  return LOCAL_STAGE_CONFIG.map((stage) => `
+    <div class="local-ops-metric local-ops-metric-${stage.key}">
+      <span>${escapeHtml(stage.label)}</span>
+      <strong>${buckets[stage.key]?.length || 0}</strong>
+    </div>
+  `).join("");
+}
+
+function renderLocalOrderOpsCard(order, stage) {
+  const status = getLocalOperationStatus(order);
+  const source = order.channel === "local" ? "Cliente en tienda" : "Ruta a domicilio";
+  const charge = getRiderChargeSummary(order);
+  const latest = getOrderLatestMovementText(order);
+  const actionButton = stage.targetStatus
+    ? `<button class="btn btn-primary btn-small" type="button" data-local-status="${order.id}" data-target-status="${stage.targetStatus}">${escapeHtml(stage.actionLabel)}</button>`
+    : `<span class="local-ready-note">Listo para asignar salida final.</span>`;
+
+  return `
+    <article class="local-order-card local-order-card-${stage.key}">
+      <div class="local-order-head">
+        <div>
+          <span class="local-order-id">Pedido #${order.id} | ${escapeHtml(source)}</span>
+          <h4>${escapeHtml(order.userName || "Cliente")}</h4>
+          <small>${escapeHtml(getOrderPacks(order).join(", ") || order.pack || "Servicio general")} | ${escapeHtml(charge.totalText)}</small>
+        </div>
+        ${renderStatusBadge(status)}
+      </div>
+
+      <div class="local-order-fields">
+        <label>
+          <span>Libras reales</span>
+          <input type="number" min="0" step="0.1" data-local-lbs="${order.id}" value="${Number(order.lbs || 0).toFixed(1)}">
+        </label>
+        <label>
+          <span>Observaciones</span>
+          <textarea rows="2" data-local-notes="${order.id}" placeholder="Manchas, piezas delicadas, urgencia...">${escapeHtml(order.notes || "")}</textarea>
+        </label>
+      </div>
+
+      <div class="local-order-meta">
+        <span>${escapeHtml(order.phone || "Sin telefono")}</span>
+        <span>${escapeHtml(fmtDate(order.date))} ${escapeHtml(fmtTime(order.time) || "--")}</span>
+        <span>${escapeHtml(latest)}</span>
+      </div>
+
+      <div class="local-order-actions">
+        ${actionButton}
+        <button class="btn btn-small btn-outline" type="button" data-local-save="${order.id}">Guardar datos</button>
+        <button class="btn btn-small" type="button" data-factura="${order.id}">Factura</button>
+        <button class="btn btn-small btn-outline" type="button" data-detalle="${order.id}">Detalle</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderLocalOperationsPanel(container, options = {}) {
+  if (!container) return;
+
+  const orders = options.orders || getLocalOperationOrders();
+  const buckets = buildLocalStageBuckets(orders);
+  const visibleStages = options.compact ? LOCAL_STAGE_CONFIG.slice(1) : LOCAL_STAGE_CONFIG;
+
+  container.innerHTML = `
+    <div class="local-ops-top">
+      <div>
+        <div class="card-eyebrow">Operacion del local</div>
+        <div class="card-title">${escapeHtml(options.title || "Centro de produccion")}</div>
+        <div class="card-secondary">${escapeHtml(options.subtitle || "Recibe, pesa, procesa y prepara salidas desde una vista unica.")}</div>
+      </div>
+      <span class="estimate-badge">${orders.length} visibles</span>
+    </div>
+    <div class="local-ops-metrics">${renderLocalOpsMetrics(buckets)}</div>
+    <div class="local-ops-columns">
+      ${visibleStages.map((stage) => `
+        <section class="local-stage-card local-stage-${stage.key}">
+          <div class="local-stage-head">
+            <div>
+              <span>${escapeHtml(stage.label)}</span>
+              <strong>${escapeHtml(stage.title)}</strong>
+            </div>
+            <em>${buckets[stage.key]?.length || 0}</em>
+          </div>
+          <div class="local-stage-list">
+            ${
+              buckets[stage.key]?.length
+                ? buckets[stage.key].map((order) => renderLocalOrderOpsCard(order, stage)).join("")
+                : `<div class="local-stage-empty">${escapeHtml(stage.empty)}</div>`
+            }
+          </div>
+        </section>
+      `).join("")}
+    </div>
+  `;
+
+  bindLocalOperationEvents(container);
+  bindInvoiceAndDetailButtons(container);
+}
+
+function bindLocalOperationEvents(scope) {
+  if (!scope) return;
+
+  Array.from(scope.querySelectorAll("[data-local-status]")).forEach((btn) => {
+    btn.addEventListener("click", updateLocalOperationOrder);
+  });
+  Array.from(scope.querySelectorAll("[data-local-save]")).forEach((btn) => {
+    btn.addEventListener("click", updateLocalOperationOrder);
+  });
+}
+
+async function updateLocalOperationOrder(ev) {
+  const trigger = ev.currentTarget || ev.target;
+  const orderId = trigger?.dataset?.localStatus || trigger?.dataset?.localSave;
+  const order = getOrderById(orderId);
+  if (!order) {
+    showWarning("No encontramos ese pedido.");
+    return;
+  }
+
+  const lbsInput = qs(`[data-local-lbs="${orderId}"]`);
+  const notesInput = qs(`[data-local-notes="${orderId}"]`);
+  const targetStatus = trigger?.dataset?.targetStatus || getLocalOperationStatus(order);
+  const lbs = Number(lbsInput?.value || order.lbs || 0);
+  const notes = notesInput?.value ?? order.notes ?? "";
+
+  try {
+    setButtonBusy(trigger, true, "Guardando...");
+    await apiPut(`/local-orders/${orderId}/status`, { status: targetStatus, lbs, notes });
+    showSuccess(`Pedido #${orderId} actualizado en local.`);
+    await loadAll({ screenId: getActiveScreenId() });
+  } catch (err) {
+    showError(err.message || "No pudimos actualizar el pedido del local.");
+  } finally {
+    setButtonBusy(trigger, false);
+  }
+}
+
 function renderGestorLocal() {
   const tbody = qs("#localOrdersBody");
   const mobileBoard = qs("#localOrdersMobileBoard");
@@ -8684,6 +8919,22 @@ function renderGestorLocal() {
     localCard.appendChild(board);
   }
   if (!tbody) return;
+
+  const screen = qs("#screenLocal");
+  let opsCard = qs("#localOperationsCard");
+  if (!opsCard && screen) {
+    opsCard = document.createElement("div");
+    opsCard.id = "localOperationsCard";
+    opsCard.className = "card card-spaced local-ops-card";
+    localCard ? screen.insertBefore(opsCard, localCard) : screen.appendChild(opsCard);
+  }
+
+  const operationOrders = getLocalOperationOrders();
+  renderLocalOperationsPanel(opsCard, {
+    title: "Centro de produccion",
+    subtitle: "Pedidos que llegan al local, estan en tratamiento o ya pueden salir a entrega.",
+    orders: operationOrders,
+  });
 
   const localOrders = sortByNewestId(localOrdersCache);
   tbody.innerHTML = localOrders.length ? "" : tableEmptyRow(8, "No hay pedidos registrados en el local.");

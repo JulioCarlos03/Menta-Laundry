@@ -123,6 +123,20 @@ const ORDER_STATUS_TRANSITIONS = {
   "listo para entrega": ["en camino a entregar"],
   "en camino a entregar": ["entregado al cliente"],
 };
+const LOCAL_ORDER_STATUSES = new Set([
+  "recibido en local",
+  "en tratamiento",
+  "listo para entrega",
+]);
+const LOCAL_OPERATION_STATUSES = [
+  "de camino al local",
+  ...LOCAL_ORDER_STATUSES,
+];
+const LOCAL_STATUS_TRANSITIONS = {
+  "de camino al local": ["recibido en local"],
+  "recibido en local": ["en tratamiento"],
+  "en tratamiento": ["listo para entrega"],
+};
 const PHONE_REGEX = /^[0-9+\-\s()]{7,20}$/;
 const DELIVERY_PROOF_METHODS = new Set(["cliente", "porteria", "recepcion", "familiar", "otro"]);
 const DELIVERY_CODE_LENGTH = 6;
@@ -602,6 +616,26 @@ function canTransitionOrderStatus(currentStatus, nextStatus) {
   return (ORDER_STATUS_TRANSITIONS[current] || []).includes(next);
 }
 
+function normalizeLocalWorkflowStatus(value, channel = "") {
+  const status = asText(value).toLowerCase();
+  if (!status) return "";
+  if (status === "recibido") return "recibido en local";
+
+  const normalized = normalizeRequestedStatus(status);
+  if (channel === "local" && normalized === "recogido al cliente") {
+    return "recibido en local";
+  }
+  return normalized;
+}
+
+function canTransitionLocalStatus(order, nextStatus) {
+  const current = normalizeLocalWorkflowStatus(order?.status, order?.channel);
+  const next = normalizeLocalWorkflowStatus(nextStatus, order?.channel);
+  if (!current || !next) return false;
+  if (current === next) return true;
+  return (LOCAL_STATUS_TRANSITIONS[current] || []).includes(next);
+}
+
 function getTokenFromRequest(req) {
   const authHeader = String(req.headers.authorization || "").trim();
   if (!authHeader.toLowerCase().startsWith("bearer ")) return null;
@@ -930,7 +964,12 @@ app.get(
     } else if (req.user.role === "repartidor") {
       query = { repartidorId: req.user.id };
     } else if (req.user.role === "cajera") {
-      query = { channel: "local" };
+      query = {
+        $or: [
+          { channel: "local" },
+          { status: { $in: LOCAL_OPERATION_STATUSES } },
+        ],
+      };
     }
 
     const orders = await Order.find(query).sort({ id: 1 }).lean();
@@ -950,7 +989,12 @@ app.get(
     } else if (req.user.role === "repartidor") {
       ordersQuery = { repartidorId: req.user.id };
     } else if (req.user.role === "cajera") {
-      ordersQuery = { channel: "local" };
+      ordersQuery = {
+        $or: [
+          { channel: "local" },
+          { status: { $in: LOCAL_OPERATION_STATUSES } },
+        ],
+      };
     }
 
     const canReviewLocalOrders = ["gestor", "cajera"].includes(req.user.role);
@@ -1363,13 +1407,13 @@ app.post(
       location: null,
       extras: Array.isArray(extras) ? extras : [],
       notes: notes || "",
-      status: "recibido",
+      status: "recibido en local",
       repartidorId: null,
       repartidorName: null,
       lbs: Number(lbs) || 0,
       channel: "local",
       createdAt: now,
-      history: [{ status: "recibido", by: "cajera", at: now }],
+      history: [{ status: "recibido en local", by: "cajera", at: now }],
     });
 
     res.json({ message: "Pedido local creado", order: publicOrder(order, req.user) });
@@ -1383,6 +1427,70 @@ app.get(
   asyncHandler(async (req, res) => {
     const localOrders = await Order.find({ channel: "local" }).sort({ id: -1 }).lean();
     res.json(localOrders.map((order) => publicOrder(order, req.user)));
+  })
+);
+
+app.put(
+  "/api/local-orders/:id/status",
+  requireAuth,
+  requireRole("cajera", "gestor"),
+  asyncHandler(async (req, res) => {
+    const orderId = Number(req.params.id);
+    const { status, lbs, notes } = req.body || {};
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ message: "El id del pedido no es valido." });
+    }
+
+    const order = await Order.findOne({ id: orderId });
+    if (!order) return res.status(404).json({ message: "Pedido no encontrado" });
+
+    const currentStatus = normalizeLocalWorkflowStatus(order.status, order.channel);
+    const targetStatus = status
+      ? normalizeLocalWorkflowStatus(status, order.channel)
+      : currentStatus;
+
+    const canOperateInLocal =
+      order.channel === "local" ||
+      currentStatus === "de camino al local" ||
+      LOCAL_ORDER_STATUSES.has(currentStatus);
+
+    if (!canOperateInLocal) {
+      return res.status(400).json({ message: "Este pedido aun no esta disponible para operacion de local." });
+    }
+
+    if (!LOCAL_ORDER_STATUSES.has(targetStatus)) {
+      return res.status(400).json({ message: "El estado solicitado no pertenece al flujo de local." });
+    }
+
+    if (!canTransitionLocalStatus(order, targetStatus)) {
+      return res.status(400).json({
+        message: `No puedes pasar de ${order.status} a ${targetStatus}.`,
+      });
+    }
+
+    if (lbs !== undefined && (!Number.isFinite(Number(lbs)) || Number(lbs) < 0 || Number(lbs) > 500)) {
+      return res.status(400).json({ message: "Las libras indicadas no son validas." });
+    }
+
+    if (notes !== undefined && !isValidTextField(notes, { min: 0, max: 500, required: false })) {
+      return res.status(400).json({ message: "Las observaciones superan el limite permitido." });
+    }
+
+    const statusChanged = currentStatus !== targetStatus;
+    order.status = targetStatus;
+    if (lbs !== undefined) {
+      order.lbs = Number(lbs) || 0;
+    }
+    if (notes !== undefined) {
+      order.notes = asText(notes);
+    }
+    if (statusChanged) {
+      addHistory(order, targetStatus, req.user.role === "gestor" ? "gestor" : "cajera");
+    }
+
+    await order.save();
+    res.json({ message: "Pedido actualizado en local", order: publicOrder(order, req.user) });
   })
 );
 
