@@ -8713,7 +8713,8 @@ function renderGestorLocal() {
 function renderRepartidorHome() {
   const assigned = ordersCache.filter((o) => Number(o.repartidorId) === Number(currentUser.id));
   const routePlan = buildRiderRoutePlan(assigned);
-  const orderedCards = [...routePlan.active, ...routePlan.waiting, ...routePlan.done];
+  const activeCards = [...routePlan.active, ...routePlan.waiting];
+  const completedCards = routePlan.done;
   const today = new Date().toISOString().slice(0, 10);
   const todayCount = assigned.filter((o) => o.date === today).length;
   const delivered = assigned.filter((o) => isFinalDeliveryStatus(o.status));
@@ -8799,16 +8800,25 @@ function renderRepartidorHome() {
   boardCard.innerHTML = `
     <div class="card-title">Panel del repartidor</div>
     <div class="card-secondary">Acciones rapidas, prioridad, direccion, notas y cambio de estado desde una vista pensada para movil.</div>
+    <div class="rider-board-head">
+      <div>
+        <div class="detail-section-title">Ruta activa</div>
+        <div class="card-secondary">Pendientes, recogidas y entregas que todavia necesitan movimiento.</div>
+      </div>
+      <span class="rider-board-count">${activeCards.length}</span>
+    </div>
     <div id="repartidorOrdersBoard" class="rider-board"></div>
+    <div id="repartidorCompletedSection" class="rider-completed-section"></div>
   `;
 
   const board = qs("#repartidorOrdersBoard");
-  if (!board) return;
+  const completedSection = qs("#repartidorCompletedSection");
+  if (!board || !completedSection) return;
 
-  if (!orderedCards.length) {
-    board.innerHTML = `<div class="attention-empty">No tienes pedidos asignados en este momento.</div>`;
+  if (!activeCards.length) {
+    board.innerHTML = `<div class="attention-empty">${completedCards.length ? "Ruta activa limpia. Los pedidos cerrados estan guardados abajo." : "No tienes pedidos asignados en este momento."}</div>`;
   } else {
-    board.innerHTML = orderedCards
+    board.innerHTML = activeCards
       .map((entry, index) => {
         const order = entry.order;
         const priority = getRiderPriority(order, index);
@@ -8961,6 +8971,42 @@ function renderRepartidorHome() {
       })
       .join("");
   }
+
+  completedSection.innerHTML = completedCards.length
+    ? `
+      <details class="rider-completed-panel">
+        <summary>
+          <span>
+            <strong>Pedidos completados</strong>
+            <small>Historial separado para que la ruta activa no se vea cargada.</small>
+          </span>
+          <em>${completedCards.length}</em>
+        </summary>
+        <div class="rider-completed-list">
+          ${completedCards
+            .map((entry) => {
+              const order = entry.order;
+              const charge = getRiderChargeSummary(order);
+              return `
+                <article class="rider-completed-item">
+                  <div class="rider-completed-copy">
+                    <span>Pedido #${order.id}</span>
+                    <strong>${escapeHtml(order.userName || "Cliente")}</strong>
+                    <small>${escapeHtml(formatStatusLabel(order.status))} | ${escapeHtml(fmtDate(order.date))} ${escapeHtml(fmtTime(order.time) || "--")} | ${escapeHtml(charge.totalText)}</small>
+                  </div>
+                  <div class="rider-completed-actions">
+                    <button class="btn btn-small" type="button" data-factura="${order.id}">Factura</button>
+                    <button class="btn btn-small btn-outline" type="button" data-detalle="${order.id}">Detalle</button>
+                  </div>
+                </article>
+              `;
+            })
+            .join("")}
+        </div>
+      </details>
+    `
+    : "";
+
   qs("#riderGeoLocateBtn")?.addEventListener("click", captureRiderLocation);
   qs("#riderGeoClearBtn")?.addEventListener("click", clearRiderLocation);
   qsa("#repartidorHomePanel [data-state]").forEach((btn) => btn.addEventListener("click", repartidorUpdateStatus));
@@ -8983,6 +9029,7 @@ function renderRepartidorHome() {
     });
   });
   bindInvoiceAndDetailButtons(board);
+  bindInvoiceAndDetailButtons(completedSection);
 }
 
 function openInvoice(ev) {
