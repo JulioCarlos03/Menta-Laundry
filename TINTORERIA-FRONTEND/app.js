@@ -1527,6 +1527,7 @@ function ensureSecondaryEnhancements() {
     screenHome: "IN",
     screenActivity: "AC",
     screenPremium: "PR",
+    screenDelivered: "OK",
     screenRiders: "RP",
     screenLocal: "LC",
     screenAccount: "CT",
@@ -1809,6 +1810,7 @@ function getAllowedScreensForCurrentRole() {
     case "gestor":
       return ["screenHome", "screenRiders", "screenLocal", "screenAccount"];
     case "repartidor":
+      return ["screenHome", "screenDelivered", "screenAccount"];
     case "cajera":
       return ["screenHome", "screenAccount"];
     default:
@@ -2051,6 +2053,7 @@ function getScreenRendererMap() {
     case "repartidor":
       return {
         screenHome: renderRepartidorHome,
+        screenDelivered: renderRepartidorDelivered,
       };
     case "cajera":
       return {
@@ -2296,6 +2299,7 @@ function updateUIByRole() {
   // nav
   const navActivity = qs("[data-screen-target='screenActivity']");
   const navPremium = qs("[data-screen-target='screenPremium']");
+  const navDelivered = qs("#navDelivered");
   const navRiders = qs("#navRiders");
   const navLocal = qs("#navLocal");
 
@@ -2311,7 +2315,7 @@ function updateUIByRole() {
 
   // reset
   show(navActivity); show(navPremium);
-  hide(navRiders); hide(navLocal);
+  hide(navDelivered); hide(navRiders); hide(navLocal);
 
   show(nextOrderCard); show(quickOrderCard); show(serviceCard);
   hide(gestorPanel); hide(repPanel); hide(cashierPanel);
@@ -2332,7 +2336,7 @@ function updateUIByRole() {
   // Gestor
   if (currentUser.role === "gestor") {
     hide(navActivity); hide(navPremium);
-    show(navRiders); show(navLocal);
+    hide(navDelivered); show(navRiders); show(navLocal);
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(gestorPanel);
     qs("#welcomeSubtitle").textContent = "Administra pedidos, asignaciones, local y repartidores.";
@@ -2343,7 +2347,7 @@ function updateUIByRole() {
   // Repartidor
   if (currentUser.role === "repartidor") {
     hide(navActivity); hide(navPremium);
-    hide(navRiders); hide(navLocal);
+    show(navDelivered); hide(navRiders); hide(navLocal);
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(repPanel);
     qs("#welcomeSubtitle").textContent = "Gestiona tus pedidos asignados y actualiza estados.";
@@ -2354,7 +2358,7 @@ function updateUIByRole() {
   // Cajera
   if (currentUser.role === "cajera") {
     hide(navActivity); hide(navPremium);
-    hide(navRiders); hide(navLocal);
+    hide(navDelivered); hide(navRiders); hide(navLocal);
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(cashierPanel);
     qs("#welcomeSubtitle").textContent = "Caja: registra pedidos del local con libras.";
@@ -8973,42 +8977,13 @@ function renderRepartidorHome() {
   }
 
   completedSection.innerHTML = `
-    <details class="rider-completed-panel" open>
-      <summary>
-        <span>
-          <strong>Entregados</strong>
-          <small>Pedidos que ya cerraste, separados de la ruta activa.</small>
-        </span>
-        <em>${completedCards.length}</em>
-      </summary>
-      ${
-        completedCards.length
-          ? `
-            <div class="rider-completed-list">
-              ${completedCards
-                .map((entry) => {
-                  const order = entry.order;
-                  const charge = getRiderChargeSummary(order);
-                  return `
-                    <article class="rider-completed-item">
-                      <div class="rider-completed-copy">
-                        <span>Pedido #${order.id}</span>
-                        <strong>${escapeHtml(order.userName || "Cliente")}</strong>
-                        <small>${escapeHtml(formatStatusLabel(order.status))} | ${escapeHtml(fmtDate(order.date))} ${escapeHtml(fmtTime(order.time) || "--")} | ${escapeHtml(charge.totalText)}</small>
-                      </div>
-                      <div class="rider-completed-actions">
-                        <button class="btn btn-small" type="button" data-factura="${order.id}">Factura</button>
-                        <button class="btn btn-small btn-outline" type="button" data-detalle="${order.id}">Detalle</button>
-                      </div>
-                    </article>
-                  `;
-                })
-                .join("")}
-            </div>
-          `
-          : `<div class="rider-completed-empty">Todavia no hay pedidos entregados en esta ruta.</div>`
-      }
-    </details>
+    <div class="rider-completed-panel rider-completed-shortcut">
+      <div>
+        <strong>Entregados</strong>
+        <small>${completedCards.length ? `${completedCards.length} pedidos cerrados disponibles en la pestaña central.` : "Todavia no hay pedidos entregados en esta ruta."}</small>
+      </div>
+      <button class="btn btn-small btn-outline" type="button" data-go-delivered>Ver entregados</button>
+    </div>
   `;
 
   qs("#riderGeoLocateBtn")?.addEventListener("click", captureRiderLocation);
@@ -9032,8 +9007,78 @@ function renderRepartidorHome() {
       copyText(getOrderContactPhone(order), "Telefono copiado.");
     });
   });
+  Array.from(completedSection.querySelectorAll("[data-go-delivered]")).forEach((btn) => {
+    btn.addEventListener("click", () => showScreen("screenDelivered", { forceRender: true }));
+  });
   bindInvoiceAndDetailButtons(board);
   bindInvoiceAndDetailButtons(completedSection);
+}
+
+function renderRepartidorDelivered() {
+  const panel = qs("#repartidorDeliveredPanel");
+  if (!panel) return;
+
+  const assigned = ordersCache.filter((o) => Number(o.repartidorId) === Number(currentUser.id));
+  const delivered = sortByNewestId(assigned.filter((o) => isFinalDeliveryStatus(o.status)));
+  const today = new Date().toISOString().slice(0, 10);
+  const deliveredToday = delivered.filter((o) => o.date === today);
+  const withProof = delivered.filter((o) => getDeliveryProof(o)).length;
+  const deliveredAmount = delivered.reduce((sum, order) => sum + Number(buildOrderChargeBreakdown(order).total || 0), 0);
+
+  panel.innerHTML = `
+    <div class="card rider-delivered-hero">
+      <div class="rider-delivered-top">
+        <div>
+          <div class="card-eyebrow">Historial del repartidor</div>
+          <div class="card-title">Entregados</div>
+          <div class="card-secondary">Pedidos finalizados por ti, separados de la ruta activa.</div>
+        </div>
+        <span class="estimate-badge">${delivered.length} cerrados</span>
+      </div>
+      <div class="rider-delivered-metrics">
+        <div><span>Hoy</span><strong>${deliveredToday.length}</strong></div>
+        <div><span>Con evidencia</span><strong>${withProof}</strong></div>
+        <div><span>Total estimado</span><strong>${money(deliveredAmount)}</strong></div>
+      </div>
+    </div>
+
+    <div class="card card-spaced rider-delivered-card">
+      <div class="detail-section-title">Pedidos entregados</div>
+      <div class="card-secondary">Consulta factura, detalle y evidencia de cierre cuando exista.</div>
+      ${
+        delivered.length
+          ? `
+            <div class="rider-delivered-list">
+              ${delivered
+                .map((order) => {
+                  const proof = getDeliveryProof(order);
+                  const charge = getRiderChargeSummary(order);
+                  return `
+                    <article class="rider-delivered-item">
+                      <div class="rider-delivered-mark">OK</div>
+                      <div class="rider-delivered-copy">
+                        <span>Pedido #${order.id}</span>
+                        <strong>${escapeHtml(order.userName || "Cliente")}</strong>
+                        <small>${escapeHtml(fmtDate(order.date))} ${escapeHtml(fmtTime(order.time) || "--")} | ${escapeHtml(order.zone || "--")} | ${escapeHtml(charge.totalText)}</small>
+                        <small>${escapeHtml(proof ? `Recibido por ${proof.receiverName || "cliente"} | ${formatDeliveryProofDate(proof)}` : getOrderLatestMovementText(order))}</small>
+                      </div>
+                      <div class="rider-delivered-actions">
+                        ${renderStatusBadge(order.status)}
+                        <button class="btn btn-small" type="button" data-factura="${order.id}">Factura</button>
+                        <button class="btn btn-small btn-outline" type="button" data-detalle="${order.id}">Detalle</button>
+                      </div>
+                    </article>
+                  `;
+                })
+                .join("")}
+            </div>
+          `
+          : `<div class="attention-empty">Aun no tienes pedidos entregados. Cuando cierres entregas, apareceran aqui.</div>`
+      }
+    </div>
+  `;
+
+  bindInvoiceAndDetailButtons(panel);
 }
 
 function openInvoice(ev) {
