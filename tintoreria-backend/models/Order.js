@@ -37,6 +37,55 @@ const historySchema = new mongoose.Schema(
   { _id: false }
 );
 
+const emailNotificationSchema = new mongoose.Schema(
+  {
+    event: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    status: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    to: {
+      type: String,
+      required: true,
+      trim: true,
+      lowercase: true,
+    },
+    ok: {
+      type: Boolean,
+      default: false,
+    },
+    delivered: {
+      type: Boolean,
+      default: false,
+    },
+    mode: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    messageId: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    error: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    sentAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: false }
+);
+
 const deliveryProofSchema = new mongoose.Schema(
   {
     receiverName: {
@@ -223,6 +272,10 @@ const orderSchema = new mongoose.Schema(
     },
     history: {
       type: [historySchema],
+      default: [],
+    },
+    emailNotifications: {
+      type: [emailNotificationSchema],
       default: [],
     },
     deliveryProof: {

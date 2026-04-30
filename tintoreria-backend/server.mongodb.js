@@ -225,6 +225,8 @@ function publicOrder(order, user) {
     delete safeOrder.deliveryCode;
   }
 
+  delete safeOrder.emailNotifications;
+
   return safeOrder;
 }
 
@@ -329,6 +331,193 @@ function buildPasswordResetEmailContent(user, resetUrl) {
     actionLabel: "Restablecer contrasena",
     note: "Este enlace vence pronto. Si no solicitaste el cambio, puedes ignorar este mensaje.",
   });
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatOrderDateTime(order) {
+  const date = asText(order?.date) || "Fecha por confirmar";
+  const time = asText(order?.time);
+  return [date, time].filter(Boolean).join(" | ");
+}
+
+function getOrderPrimaryService(order) {
+  const packs = Array.isArray(order?.packs) && order.packs.length
+    ? order.packs
+    : asText(order?.pack)
+      ? [asText(order.pack)]
+      : [];
+  return packs.join(", ") || "Servicio textil";
+}
+
+function buildOrderTrackingUrl(order) {
+  return buildAppUrl({
+    order: order?.id || "",
+  });
+}
+
+function buildOrderStatusEmailShell({ eyebrow, title, intro, order, actionLabel = "Ver mi pedido", note = "" }) {
+  const actionUrl = buildOrderTrackingUrl(order);
+  const safeTitle = escapeHtml(title);
+  const safeIntro = escapeHtml(intro);
+  const safeActionUrl = escapeHtml(actionUrl);
+  const safeCustomer = escapeHtml(order?.userName || "Cliente");
+  const safeOrderId = escapeHtml(order?.id || "");
+  const safeService = escapeHtml(getOrderPrimaryService(order));
+  const safeSchedule = escapeHtml(formatOrderDateTime(order));
+  const safeAddress = escapeHtml(order?.address || "Direccion pendiente");
+  const safeRider = escapeHtml(order?.repartidorName || "Equipo Menta Laundry");
+  const safeNote = escapeHtml(note || "Gracias por confiar en Menta Laundry. Te mantendremos informado solo en los momentos importantes.");
+
+  return {
+    html: `
+      <div style="font-family:Segoe UI,Arial,sans-serif;background:#eef8f5;padding:32px;color:#173442;">
+        <div style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:28px;padding:32px;border:1px solid #cfe9df;box-shadow:0 18px 50px rgba(23,52,66,.12);">
+          <div style="display:inline-block;padding:8px 12px;border-radius:999px;background:#e4f5ee;color:#26765d;font-size:12px;font-weight:900;letter-spacing:.10em;text-transform:uppercase;">
+            ${escapeHtml(eyebrow)}
+          </div>
+          <h1 style="margin:18px 0 10px;font-size:30px;line-height:1.1;color:#173442;">${safeTitle}</h1>
+          <p style="margin:0 0 22px;font-size:16px;line-height:1.7;color:#55707b;">${safeIntro}</p>
+          <div style="border:1px solid #d8eee7;border-radius:22px;padding:18px;background:linear-gradient(135deg,#f7fffc,#ffffff);">
+            <div style="display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:12px;">
+              <div>
+                <div style="font-size:12px;font-weight:900;letter-spacing:.10em;text-transform:uppercase;color:#6b838c;">Pedido</div>
+                <div style="font-size:22px;font-weight:900;color:#173442;">#${safeOrderId}</div>
+              </div>
+              <div style="padding:8px 12px;border-radius:999px;background:#dff6ef;color:#26765d;font-size:12px;font-weight:900;">Menta Laundry</div>
+            </div>
+            <p style="margin:8px 0;color:#55707b;"><strong style="color:#173442;">Cliente:</strong> ${safeCustomer}</p>
+            <p style="margin:8px 0;color:#55707b;"><strong style="color:#173442;">Servicio:</strong> ${safeService}</p>
+            <p style="margin:8px 0;color:#55707b;"><strong style="color:#173442;">Agenda:</strong> ${safeSchedule}</p>
+            <p style="margin:8px 0;color:#55707b;"><strong style="color:#173442;">Direccion:</strong> ${safeAddress}</p>
+            <p style="margin:8px 0 0;color:#55707b;"><strong style="color:#173442;">Atendido por:</strong> ${safeRider}</p>
+          </div>
+          <a href="${safeActionUrl}" style="display:inline-block;margin-top:22px;padding:14px 20px;border-radius:16px;background:linear-gradient(135deg,#82cdb0,#2f82b2);color:#ffffff;text-decoration:none;font-weight:900;">
+            ${escapeHtml(actionLabel)}
+          </a>
+          <p style="margin:22px 0 0;font-size:13px;line-height:1.7;color:#7d949c;">${safeNote}</p>
+        </div>
+      </div>
+    `,
+    text: [
+      title,
+      "",
+      intro,
+      "",
+      `Pedido #${order?.id || ""}`,
+      `Cliente: ${order?.userName || "Cliente"}`,
+      `Servicio: ${getOrderPrimaryService(order)}`,
+      `Agenda: ${formatOrderDateTime(order)}`,
+      `Direccion: ${order?.address || "Direccion pendiente"}`,
+      `Atendido por: ${order?.repartidorName || "Equipo Menta Laundry"}`,
+      "",
+      `${actionLabel}: ${actionUrl}`,
+      "",
+      note,
+    ].join("\n"),
+  };
+}
+
+function getOrderLifecycleEmailMeta(status) {
+  const normalized = normalizeRequestedStatus(status);
+  const metaByStatus = {
+    "en camino a recoger": {
+      event: "rider_to_pickup",
+      subject: `Tu repartidor va en camino | ${BUSINESS_INFO.name}`,
+      eyebrow: "Recogida en camino",
+      title: "Tu repartidor va en camino",
+      intro: "Estamos saliendo hacia tu ubicacion para recoger tus prendas. Ten tu pedido listo y revisa el codigo de recogida desde tu cuenta si se solicita.",
+      actionLabel: "Ver seguimiento",
+    },
+    "recibido en local": {
+      event: "local_received",
+      subject: `Recibimos tus prendas en ${BUSINESS_INFO.name}`,
+      eyebrow: "Recibido en local",
+      title: "Tus prendas llegaron al local",
+      intro: "Ya recibimos tu pedido en Menta Laundry. Ahora pasa a revision, pesaje y preparacion para el tratamiento correspondiente.",
+      actionLabel: "Ver estado",
+    },
+    "entregado al cliente": {
+      event: "delivered_to_client",
+      subject: `Pedido entregado | ${BUSINESS_INFO.name}`,
+      eyebrow: "Entrega completada",
+      title: "Tu pedido fue entregado correctamente",
+      intro: "Tu servicio fue cerrado como entregado. Gracias por permitirnos cuidar tus prendas con seguimiento y atencion profesional.",
+      actionLabel: "Ver factura",
+      note: "Si algo no quedo como esperabas, responde este correo o contacta soporte para ayudarte de inmediato.",
+    },
+  };
+
+  return metaByStatus[normalized] || null;
+}
+
+function hasSentOrderLifecycleNotification(order, event) {
+  return Array.isArray(order?.emailNotifications) &&
+    order.emailNotifications.some((item) => item?.event === event && item?.ok === true);
+}
+
+async function sendOrderLifecycleNotification(order, status) {
+  const meta = getOrderLifecycleEmailMeta(status);
+  if (!meta || !order) return null;
+
+  const to = asText(order.userEmail).toLowerCase();
+  if (!isValidEmail(to)) return null;
+  if (hasSentOrderLifecycleNotification(order, meta.event)) return null;
+
+  const content = buildOrderStatusEmailShell({
+    eyebrow: meta.eyebrow,
+    title: meta.title,
+    intro: meta.intro,
+    order,
+    actionLabel: meta.actionLabel,
+    note: meta.note,
+  });
+
+  const logEntry = {
+    event: meta.event,
+    status: normalizeRequestedStatus(status),
+    to,
+    ok: false,
+    delivered: false,
+    mode: getEmailMode(),
+    messageId: null,
+    error: "",
+    sentAt: new Date(),
+  };
+
+  try {
+    const delivery = await sendEmail({
+      to,
+      subject: meta.subject,
+      html: content.html,
+      text: content.text,
+      debugActionUrl: buildOrderTrackingUrl(order),
+    });
+    logEntry.ok = Boolean(delivery?.ok);
+    logEntry.delivered = Boolean(delivery?.delivered);
+    logEntry.mode = delivery?.mode || getEmailMode();
+    logEntry.messageId = delivery?.messageId || null;
+  } catch (error) {
+    logEntry.error = String(error?.message || "email_delivery_failed").slice(0, 240);
+    console.warn(`No se pudo enviar notificacion ${meta.event} para pedido #${order.id}:`, logEntry.error);
+  }
+
+  try {
+    if (!Array.isArray(order.emailNotifications)) order.emailNotifications = [];
+    order.emailNotifications.push(logEntry);
+    await order.save();
+  } catch (error) {
+    console.warn(`No se pudo registrar notificacion ${meta.event} para pedido #${order.id}:`, error?.message || error);
+  }
+
+  return logEntry;
 }
 
 function buildDeliveryResponse(deliveryResult) {
@@ -1272,6 +1461,7 @@ app.put(
 
     addHistory(order, normalizedStatus, "repartidor");
     await order.save();
+    await sendOrderLifecycleNotification(order, normalizedStatus);
 
     res.json({ message: "Estado actualizado", order: publicOrder(order, req.user) });
   })
@@ -1416,6 +1606,8 @@ app.post(
       history: [{ status: "recibido en local", by: "cajera", at: now }],
     });
 
+    await sendOrderLifecycleNotification(order, "recibido en local");
+
     res.json({ message: "Pedido local creado", order: publicOrder(order, req.user) });
   })
 );
@@ -1490,6 +1682,9 @@ app.put(
     }
 
     await order.save();
+    if (statusChanged) {
+      await sendOrderLifecycleNotification(order, targetStatus);
+    }
     res.json({ message: "Pedido actualizado en local", order: publicOrder(order, req.user) });
   })
 );
