@@ -8972,40 +8972,44 @@ function renderRepartidorHome() {
       .join("");
   }
 
-  completedSection.innerHTML = completedCards.length
-    ? `
-      <details class="rider-completed-panel">
-        <summary>
-          <span>
-            <strong>Pedidos completados</strong>
-            <small>Historial separado para que la ruta activa no se vea cargada.</small>
-          </span>
-          <em>${completedCards.length}</em>
-        </summary>
-        <div class="rider-completed-list">
-          ${completedCards
-            .map((entry) => {
-              const order = entry.order;
-              const charge = getRiderChargeSummary(order);
-              return `
-                <article class="rider-completed-item">
-                  <div class="rider-completed-copy">
-                    <span>Pedido #${order.id}</span>
-                    <strong>${escapeHtml(order.userName || "Cliente")}</strong>
-                    <small>${escapeHtml(formatStatusLabel(order.status))} | ${escapeHtml(fmtDate(order.date))} ${escapeHtml(fmtTime(order.time) || "--")} | ${escapeHtml(charge.totalText)}</small>
-                  </div>
-                  <div class="rider-completed-actions">
-                    <button class="btn btn-small" type="button" data-factura="${order.id}">Factura</button>
-                    <button class="btn btn-small btn-outline" type="button" data-detalle="${order.id}">Detalle</button>
-                  </div>
-                </article>
-              `;
-            })
-            .join("")}
-        </div>
-      </details>
-    `
-    : "";
+  completedSection.innerHTML = `
+    <details class="rider-completed-panel" open>
+      <summary>
+        <span>
+          <strong>Entregados</strong>
+          <small>Pedidos que ya cerraste, separados de la ruta activa.</small>
+        </span>
+        <em>${completedCards.length}</em>
+      </summary>
+      ${
+        completedCards.length
+          ? `
+            <div class="rider-completed-list">
+              ${completedCards
+                .map((entry) => {
+                  const order = entry.order;
+                  const charge = getRiderChargeSummary(order);
+                  return `
+                    <article class="rider-completed-item">
+                      <div class="rider-completed-copy">
+                        <span>Pedido #${order.id}</span>
+                        <strong>${escapeHtml(order.userName || "Cliente")}</strong>
+                        <small>${escapeHtml(formatStatusLabel(order.status))} | ${escapeHtml(fmtDate(order.date))} ${escapeHtml(fmtTime(order.time) || "--")} | ${escapeHtml(charge.totalText)}</small>
+                      </div>
+                      <div class="rider-completed-actions">
+                        <button class="btn btn-small" type="button" data-factura="${order.id}">Factura</button>
+                        <button class="btn btn-small btn-outline" type="button" data-detalle="${order.id}">Detalle</button>
+                      </div>
+                    </article>
+                  `;
+                })
+                .join("")}
+            </div>
+          `
+          : `<div class="rider-completed-empty">Todavia no hay pedidos entregados en esta ruta.</div>`
+      }
+    </details>
+  `;
 
   qs("#riderGeoLocateBtn")?.addEventListener("click", captureRiderLocation);
   qs("#riderGeoClearBtn")?.addEventListener("click", clearRiderLocation);
