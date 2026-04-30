@@ -8,7 +8,7 @@
   <title>Menta Laundry</title>
   <link rel="icon" href="assets/menta-icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-  <link rel="stylesheet" href="style.css?v=20260430-6" />
+  <link rel="stylesheet" href="style.css?v=20260430-7" />
 </head>
 
 <body>
@@ -353,6 +353,11 @@
         </div>
       </section>
 
+      <!-- CONTROL (gestor) -->
+      <section id="screenControl" class="screen">
+        <div id="gestorControlPanel"></div>
+      </section>
+
       <!-- REPARTIDORES (gestor) -->
       <section id="screenRiders" class="screen">
         <div class="card">
@@ -471,6 +476,11 @@
     </button>
 
     <!-- Gestor -->
+    <button id="navControl" class="nav-item" data-screen-target="screenControl" type="button" style="display:none;">
+      <div class="nav-icon">CO</div>
+      <div class="nav-label">Control</div>
+    </button>
+
     <button id="navRiders" class="nav-item" data-screen-target="screenRiders" type="button" style="display:none;">
       <div class="nav-icon">🧑‍🔧</div>
       <div class="nav-label">Repartidores</div>
@@ -566,6 +576,6 @@
 
   <script src="config.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="app.js?v=20260430-6"></script>
+  <script src="app.js?v=20260430-7"></script>
 </body>
 </html>

@@ -1529,6 +1529,7 @@ function ensureSecondaryEnhancements() {
     screenPremium: "PR",
     screenDelivered: "OK",
     screenProduction: "OP",
+    screenControl: "CO",
     screenRiders: "RP",
     screenLocal: "LC",
     screenAccount: "CT",
@@ -1809,7 +1810,7 @@ function getAllowedScreensForCurrentRole() {
     case "cliente":
       return ["screenHome", "screenActivity", "screenPremium", "screenAccount"];
     case "gestor":
-      return ["screenHome", "screenRiders", "screenLocal", "screenAccount"];
+      return ["screenHome", "screenControl", "screenRiders", "screenLocal", "screenAccount"];
     case "repartidor":
       return ["screenHome", "screenDelivered", "screenAccount"];
     case "cajera":
@@ -2048,6 +2049,7 @@ function getScreenRendererMap() {
     case "gestor":
       return {
         screenHome: renderGestorHome,
+        screenControl: renderGestorControl,
         screenRiders: renderGestorRidersActivity,
         screenLocal: renderGestorLocal,
       };
@@ -2303,6 +2305,7 @@ function updateUIByRole() {
   const navPremium = qs("[data-screen-target='screenPremium']");
   const navDelivered = qs("#navDelivered");
   const navProduction = qs("#navProduction");
+  const navControl = qs("#navControl");
   const navRiders = qs("#navRiders");
   const navLocal = qs("#navLocal");
 
@@ -2318,7 +2321,7 @@ function updateUIByRole() {
 
   // reset
   show(navActivity); show(navPremium);
-  hide(navDelivered); hide(navProduction); hide(navRiders); hide(navLocal);
+  hide(navDelivered); hide(navProduction); hide(navControl); hide(navRiders); hide(navLocal);
 
   show(nextOrderCard); show(quickOrderCard); show(serviceCard);
   hide(gestorPanel); hide(repPanel); hide(cashierPanel);
@@ -2339,7 +2342,7 @@ function updateUIByRole() {
   // Gestor
   if (currentUser.role === "gestor") {
     hide(navActivity); hide(navPremium);
-    hide(navDelivered); hide(navProduction); show(navRiders); show(navLocal);
+    hide(navDelivered); hide(navProduction); show(navControl); show(navRiders); show(navLocal);
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(gestorPanel);
     qs("#welcomeSubtitle").textContent = "Administra pedidos, asignaciones, local y repartidores.";
@@ -2350,7 +2353,7 @@ function updateUIByRole() {
   // Repartidor
   if (currentUser.role === "repartidor") {
     hide(navActivity); hide(navPremium);
-    show(navDelivered); hide(navProduction); hide(navRiders); hide(navLocal);
+    show(navDelivered); hide(navProduction); hide(navControl); hide(navRiders); hide(navLocal);
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(repPanel);
     qs("#welcomeSubtitle").textContent = "Gestiona tus pedidos asignados y actualiza estados.";
@@ -2361,7 +2364,7 @@ function updateUIByRole() {
   // Cajera
   if (currentUser.role === "cajera") {
     hide(navActivity); hide(navPremium);
-    hide(navDelivered); show(navProduction); hide(navRiders); hide(navLocal);
+    hide(navDelivered); show(navProduction); hide(navControl); hide(navRiders); hide(navLocal);
     hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
     show(cashierPanel);
     qs("#welcomeSubtitle").textContent = "Caja: registra pedidos del local con libras.";
@@ -5998,13 +6001,17 @@ function getRidersByGestorZone(riders, zoneFilter) {
 function bindGestorZoneFilters(scope) {
   if (!scope) return;
 
+  const refreshGestorZoneView = () => {
+    renderScreenForCurrentRole(getActiveScreenId(), { force: true });
+  };
+
   Array.from(scope.querySelectorAll("[data-zone-filter]")).forEach((node) => {
     node.addEventListener("click", (event) => {
       if (event.target.closest("a")) return;
       const zone = event.currentTarget?.dataset?.zoneFilter;
       if (!zone) return;
       saveGestorZoneFilter(zone);
-      renderGestorHome();
+      refreshGestorZoneView();
     });
 
     node.addEventListener("keydown", (event) => {
@@ -6013,14 +6020,14 @@ function bindGestorZoneFilters(scope) {
       const zone = event.currentTarget?.dataset?.zoneFilter;
       if (!zone) return;
       saveGestorZoneFilter(zone);
-      renderGestorHome();
+      refreshGestorZoneView();
     });
   });
 
   Array.from(scope.querySelectorAll("[data-zone-clear]")).forEach((node) => {
     node.addEventListener("click", () => {
       saveGestorZoneFilter("all");
-      renderGestorHome();
+      refreshGestorZoneView();
     });
   });
 }
@@ -7772,14 +7779,22 @@ function renderGestorControlTowerPanel({
   scopedRiders,
   pendientes,
   sinAsignar,
+  cardId = "gestorControlTowerCard",
+  mountSelector = "#gestorHomePanel .role-summary-row",
+  mountMode = "after",
+  extraClass = "",
 }) {
-  let controlCard = qs("#gestorControlTowerCard");
+  let controlCard = document.getElementById(cardId);
   if (!controlCard) {
     controlCard = document.createElement("div");
-    controlCard.id = "gestorControlTowerCard";
-    controlCard.className = "card card-spaced gestor-control-card";
-    const summaryRow = qs("#gestorHomePanel .role-summary-row");
-    summaryRow?.insertAdjacentElement("afterend", controlCard);
+    controlCard.id = cardId;
+    controlCard.className = `card card-spaced gestor-control-card ${extraClass}`.trim();
+    const mountEl = typeof mountSelector === "string" ? qs(mountSelector) : mountSelector;
+    if (mountMode === "append") {
+      mountEl?.appendChild(controlCard);
+    } else {
+      mountEl?.insertAdjacentElement("afterend", controlCard);
+    }
   }
 
   const metrics = getGestorControlTowerMetrics({
@@ -7846,7 +7861,7 @@ function renderGestorControlTowerPanel({
   bindInvoiceAndDetailButtons(controlCard);
 }
 
-function renderGestorHome() {
+function getGestorDashboardContext() {
   const today = new Date().toISOString().slice(0, 10);
   const nonLocal = ordersCache.filter((o) => o.channel !== "local");
   const zoneList = Array.from(new Set([
@@ -7874,47 +7889,112 @@ function renderGestorHome() {
     })
     .slice(0, 3);
 
-  qs("#gestorActiveCount").textContent = String(scopedOrders.length);
-  qs("#gestorTodayCount").textContent = String(scopedOrders.filter((o) => o.date === today).length);
-  qs("#gestorClientsCount").textContent = String(new Set(scopedOrders.map((o) => o.userId).filter(Boolean)).size);
-
-  renderGestorControlTowerPanel({
+  return {
+    today,
+    nonLocal,
+    zoneList,
     activeZoneFilter,
-    zoneLabel,
     scopedOrders,
     scopedRiders,
-    pendientes,
-    sinAsignar,
-  });
-  renderGestorExecutivePanel({
-    activeZoneFilter,
     zoneLabel,
     pendientes,
+    enProceso,
     sinAsignar,
     enRuta,
     entregadosHoy,
     priorityOrders,
+  };
+}
+
+function removeGestorControlCards() {
+  [
+    "gestorControlTowerCard",
+    "gestorExecutiveCard",
+    "gestorDispatchCard",
+    "gestorGeoCard",
+    "gestorRiderCoverageCard",
+  ].forEach((id) => document.getElementById(id)?.remove());
+}
+
+function renderGestorControlIntro(panel, context, metrics) {
+  const zoneCopy = context.activeZoneFilter === "all"
+    ? "Todas las zonas sincronizadas para decidir rapido."
+    : `${context.zoneLabel} enfocado para operar sin ruido.`;
+
+  panel.innerHTML = `
+    <div class="card card-spaced gestor-command-card">
+      <div class="executive-head">
+        <div>
+          <div class="gestor-control-kicker">Control del gestor</div>
+          <div class="card-title">Cabina operativa Menta Laundry</div>
+          <div class="card-secondary">Prioridades, rutas, GPS y repartidores en una sola vista ejecutiva.</div>
+        </div>
+        <div class="estimate-badge">${escapeHtml(context.zoneLabel)}</div>
+      </div>
+      <div class="gestor-command-grid">
+        <div class="gestor-command-stat">
+          <span>Pedidos activos</span>
+          <strong>${metrics.activeOrders.length}</strong>
+          <small>${escapeHtml(zoneCopy)}</small>
+        </div>
+        <div class="gestor-command-stat">
+          <span>Salud operativa</span>
+          <strong>${metrics.healthScore}%</strong>
+          <small>${escapeHtml(metrics.label)}</small>
+        </div>
+        <div class="gestor-command-stat">
+          <span>Listos para salida</span>
+          <strong>${metrics.readyForDelivery.length}</strong>
+          <small>Pedidos que pueden avanzar a entrega.</small>
+        </div>
+        <div class="gestor-command-stat">
+          <span>Equipo libre</span>
+          <strong>${metrics.idleRiders.length}</strong>
+          <small>Repartidores disponibles en esta vista.</small>
+        </div>
+      </div>
+    </div>
+    <div id="gestorControlMount" class="gestor-control-mount"></div>
+  `;
+}
+
+function renderGestorControl() {
+  const panel = qs("#gestorControlPanel");
+  if (!panel) return;
+
+  removeGestorControlCards();
+  const context = getGestorDashboardContext();
+  const metrics = getGestorControlTowerMetrics(context);
+  renderGestorControlIntro(panel, context, metrics);
+  const mount = qs("#gestorControlMount");
+
+  renderGestorControlTowerPanel({
+    ...context,
+    mountSelector: mount,
+    mountMode: "append",
+    extraClass: "gestor-control-card-standalone",
   });
-  renderGestorDispatchCommandPanel({
+  renderGestorExecutivePanel(context);
+  renderGestorDispatchCommandPanel(context);
+  renderGestorZoneOverviewPanel(context);
+  renderGestorRiderCoveragePanel(context);
+}
+
+function renderGestorHome() {
+  const context = getGestorDashboardContext();
+  const {
+    today,
+    scopedOrders,
     pendientes,
-    scopedRiders,
+    enProceso,
     activeZoneFilter,
     zoneLabel,
-  });
-  renderGestorZoneOverviewPanel({
-    nonLocal,
-    scopedOrders,
-    scopedRiders,
-    zoneList,
-    activeZoneFilter,
-    zoneLabel,
-  });
-  renderGestorRiderCoveragePanel({
-    scopedOrders,
-    scopedRiders,
-    activeZoneFilter,
-    zoneLabel,
-  });
+  } = context;
+
+  qs("#gestorActiveCount").textContent = String(scopedOrders.length);
+  qs("#gestorTodayCount").textContent = String(scopedOrders.filter((o) => o.date === today).length);
+  qs("#gestorClientsCount").textContent = String(new Set(scopedOrders.map((o) => o.userId).filter(Boolean)).size);
+
   renderGestorAssignTable({
     pendientes,
     activeZoneFilter,
