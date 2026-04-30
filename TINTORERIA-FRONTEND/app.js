@@ -8718,7 +8718,6 @@ function renderRepartidorHome() {
   const assigned = ordersCache.filter((o) => Number(o.repartidorId) === Number(currentUser.id));
   const routePlan = buildRiderRoutePlan(assigned);
   const activeCards = [...routePlan.active, ...routePlan.waiting];
-  const completedCards = routePlan.done;
   const today = new Date().toISOString().slice(0, 10);
   const todayCount = assigned.filter((o) => o.date === today).length;
   const delivered = assigned.filter((o) => isFinalDeliveryStatus(o.status));
@@ -8812,15 +8811,13 @@ function renderRepartidorHome() {
       <span class="rider-board-count">${activeCards.length}</span>
     </div>
     <div id="repartidorOrdersBoard" class="rider-board"></div>
-    <div id="repartidorCompletedSection" class="rider-completed-section"></div>
   `;
 
   const board = qs("#repartidorOrdersBoard");
-  const completedSection = qs("#repartidorCompletedSection");
-  if (!board || !completedSection) return;
+  if (!board) return;
 
   if (!activeCards.length) {
-    board.innerHTML = `<div class="attention-empty">${completedCards.length ? "Ruta activa limpia. Los pedidos cerrados estan guardados abajo." : "No tienes pedidos asignados en este momento."}</div>`;
+    board.innerHTML = `<div class="attention-empty">Ruta activa limpia. Revisa Entregados en la barra inferior para ver pedidos cerrados.</div>`;
   } else {
     board.innerHTML = activeCards
       .map((entry, index) => {
@@ -8976,16 +8973,6 @@ function renderRepartidorHome() {
       .join("");
   }
 
-  completedSection.innerHTML = `
-    <div class="rider-completed-panel rider-completed-shortcut">
-      <div>
-        <strong>Entregados</strong>
-        <small>${completedCards.length ? `${completedCards.length} pedidos cerrados disponibles en la pestaña central.` : "Todavia no hay pedidos entregados en esta ruta."}</small>
-      </div>
-      <button class="btn btn-small btn-outline" type="button" data-go-delivered>Ver entregados</button>
-    </div>
-  `;
-
   qs("#riderGeoLocateBtn")?.addEventListener("click", captureRiderLocation);
   qs("#riderGeoClearBtn")?.addEventListener("click", clearRiderLocation);
   qsa("#repartidorHomePanel [data-state]").forEach((btn) => btn.addEventListener("click", repartidorUpdateStatus));
@@ -9007,11 +8994,7 @@ function renderRepartidorHome() {
       copyText(getOrderContactPhone(order), "Telefono copiado.");
     });
   });
-  Array.from(completedSection.querySelectorAll("[data-go-delivered]")).forEach((btn) => {
-    btn.addEventListener("click", () => showScreen("screenDelivered", { forceRender: true }));
-  });
   bindInvoiceAndDetailButtons(board);
-  bindInvoiceAndDetailButtons(completedSection);
 }
 
 function renderRepartidorDelivered() {
