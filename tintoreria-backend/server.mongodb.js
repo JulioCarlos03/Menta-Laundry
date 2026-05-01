@@ -10,6 +10,7 @@ const connectDB = require("./config/db");
 const seedDemoData = require("./config/seed");
 const User = require("./models/User");
 const Order = require("./models/Order");
+const Notification = require("./models/Notification");
 const { sendEmail, getEmailMode } = require("./services/emailService");
 
 const app = express();
@@ -123,6 +124,18 @@ const ORDER_STATUS_TRANSITIONS = {
   "listo para entrega": ["en camino a entregar"],
   "en camino a entregar": ["entregado al cliente"],
 };
+const ORDER_STATUS_FLOW = [
+  "pendiente",
+  "asignado",
+  "en camino a recoger",
+  "recogido al cliente",
+  "de camino al local",
+  "recibido en local",
+  "en tratamiento",
+  "listo para entrega",
+  "en camino a entregar",
+  "entregado al cliente",
+];
 const LOCAL_ORDER_STATUSES = new Set([
   "recibido en local",
   "en tratamiento",
@@ -228,6 +241,32 @@ function publicOrder(order, user) {
   delete safeOrder.emailNotifications;
 
   return safeOrder;
+}
+
+function publicNotification(notification, user) {
+  const safeNotification = notification?.toObject ? notification.toObject() : { ...notification };
+  const readReceipt = (safeNotification.readReceipts || []).find(
+    (receipt) => Number(receipt.userId) === Number(user?.id)
+  );
+
+  return {
+    id: safeNotification.key,
+    key: safeNotification.key,
+    title: safeNotification.title,
+    copy: safeNotification.copy,
+    meta: safeNotification.meta || "",
+    tone: safeNotification.tone || "info",
+    screen: safeNotification.screen || "screenHome",
+    actionLabel: safeNotification.actionLabel || "Abrir",
+    priority: Number(safeNotification.priority || 0),
+    orderId: safeNotification.orderId || null,
+    orderChannel: safeNotification.orderChannel || "",
+    recipientRole: safeNotification.recipientRole,
+    recipientUserId: safeNotification.recipientUserId || null,
+    createdAt: safeNotification.createdAt,
+    read: Boolean(readReceipt),
+    readAt: readReceipt?.readAt || null,
+  };
 }
 
 function issueAccessToken(user) {
@@ -669,6 +708,516 @@ function normalizeLocation(location) {
 function addHistory(order, status, by) {
   if (!Array.isArray(order.history)) order.history = [];
   order.history.push({ status, by, at: new Date() });
+}
+
+function getOrderStatusRank(status) {
+  const index = ORDER_STATUS_FLOW.indexOf(normalizeRequestedStatus(status));
+  return index >= 0 ? index : 0;
+}
+
+function isOrderClosed(status) {
+  const normalized = normalizeRequestedStatus(status);
+  return normalized === "entregado al cliente" || normalized === "cancelado";
+}
+
+function hasOrderGps(order) {
+  const location = order?.location || null;
+  return Number.isFinite(Number(location?.lat)) && Number.isFinite(Number(location?.lng));
+}
+
+function getOrderServiceTimestamp(order) {
+  const rawDate = asText(order?.date);
+  if (!rawDate) return null;
+  const rawTime = asText(order?.time) || "00:00";
+  const timestamp = new Date(`${rawDate}T${rawTime}`).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function isOrderDelayedForNotification(order) {
+  if (!order || isOrderClosed(order.status)) return false;
+  const timestamp = getOrderServiceTimestamp(order);
+  return Number.isFinite(timestamp) && timestamp < Date.now();
+}
+
+function buildNotificationVisibilityQuery(user) {
+  return {
+    $or: [
+      { recipientUserId: Number(user.id) },
+      {
+        recipientRole: user.role,
+        $or: [{ recipientUserId: null }, { recipientUserId: { $exists: false } }],
+      },
+    ],
+  };
+}
+
+function buildOrderNotificationKey(order, topic, extra = "") {
+  return [
+    "order",
+    topic,
+    order?.channel || "domicilio",
+    order?.id || "sin-id",
+    extra || normalizeRequestedStatus(order?.status),
+  ].join(":");
+}
+
+function getOrderNotificationMeta(order) {
+  const parts = [
+    order?.id ? `Pedido #${order.id}` : "",
+    order?.zone || "",
+    normalizeRequestedStatus(order?.status) || "",
+  ].filter(Boolean);
+  return parts.join(" | ");
+}
+
+async function createInternalNotification(input = {}) {
+  const key = asText(input.key);
+  const recipientRole = asText(input.recipientRole);
+  const title = asText(input.title);
+  const copy = asText(input.copy);
+  if (!key || !recipientRole || !title || !copy) return null;
+
+  const doc = {
+    key,
+    recipientRole,
+    recipientUserId: Number.isFinite(Number(input.recipientUserId)) ? Number(input.recipientUserId) : null,
+    orderId: Number.isFinite(Number(input.orderId)) ? Number(input.orderId) : null,
+    orderChannel: asText(input.orderChannel) || "domicilio",
+    title,
+    copy,
+    meta: asText(input.meta),
+    tone: ["info", "success", "warning", "danger"].includes(asText(input.tone)) ? asText(input.tone) : "info",
+    screen: asText(input.screen) || "screenHome",
+    actionLabel: asText(input.actionLabel) || "Abrir",
+    priority: Number.isFinite(Number(input.priority)) ? Number(input.priority) : 50,
+    createdAt: input.createdAt instanceof Date ? input.createdAt : new Date(),
+  };
+
+  try {
+    await Notification.updateOne({ key }, { $setOnInsert: doc }, { upsert: true });
+  } catch (error) {
+    if (error?.code !== 11000) {
+      console.warn("No se pudo crear notificacion interna:", error?.message || error);
+    }
+  }
+  return doc;
+}
+
+async function createOrderCreatedNotifications(order) {
+  if (!order) return;
+  await Promise.all([
+    createInternalNotification({
+      key: buildOrderNotificationKey(order, "created", "gestor"),
+      recipientRole: "gestor",
+      orderId: order.id,
+      orderChannel: order.channel,
+      title: "Nuevo pedido pendiente",
+      copy: `${order.userName || "Cliente"} creo una recogida en ${order.zone || "zona pendiente"}.`,
+      meta: getOrderNotificationMeta(order),
+      tone: "warning",
+      screen: "screenHome",
+      actionLabel: "Asignar",
+      priority: 100,
+    }),
+    order.userId
+      ? createInternalNotification({
+          key: buildOrderNotificationKey(order, "client-created", order.userId),
+          recipientRole: "cliente",
+          recipientUserId: order.userId,
+          orderId: order.id,
+          orderChannel: order.channel,
+          title: "Solicitud recibida",
+          copy: "Tu pedido fue creado y ya esta en la bandeja de Menta Laundry.",
+          meta: getOrderNotificationMeta(order),
+          tone: "success",
+          screen: "screenHome",
+          actionLabel: "Ver pedido",
+          priority: 70,
+        })
+      : Promise.resolve(),
+  ]);
+}
+
+async function createOrderAssignedNotifications(order, rider) {
+  if (!order || !rider) return;
+  const assignmentStamp = order.history?.[order.history.length - 1]?.at
+    ? new Date(order.history[order.history.length - 1].at).getTime()
+    : Date.now();
+
+  await Promise.all([
+    createInternalNotification({
+      key: buildOrderNotificationKey(order, "assigned-rider", `${rider.id}:${assignmentStamp}`),
+      recipientRole: "repartidor",
+      recipientUserId: rider.id,
+      orderId: order.id,
+      orderChannel: order.channel,
+      title: "Nuevo pedido asignado",
+      copy: `${order.userName || "Cliente"} ya esta en tu ruta activa.`,
+      meta: getOrderNotificationMeta(order),
+      tone: "info",
+      screen: "screenHome",
+      actionLabel: "Ver ruta",
+      priority: 95,
+    }),
+    order.userId
+      ? createInternalNotification({
+          key: buildOrderNotificationKey(order, "assigned-client", `${order.userId}:${assignmentStamp}`),
+          recipientRole: "cliente",
+          recipientUserId: order.userId,
+          orderId: order.id,
+          orderChannel: order.channel,
+          title: "Repartidor asignado",
+          copy: `${rider.name || "Tu repartidor"} fue asignado a tu servicio.`,
+          meta: getOrderNotificationMeta(order),
+          tone: "info",
+          screen: "screenHome",
+          actionLabel: "Ver pedido",
+          priority: 78,
+        })
+      : Promise.resolve(),
+  ]);
+}
+
+async function createOrderCancelledNotifications(order) {
+  if (!order) return;
+  await Promise.all([
+    createInternalNotification({
+      key: buildOrderNotificationKey(order, "cancelled-gestor", "gestor"),
+      recipientRole: "gestor",
+      orderId: order.id,
+      orderChannel: order.channel,
+      title: "Pedido cancelado",
+      copy: `${order.userName || "Cliente"} cancelo un pedido que estaba en seguimiento.`,
+      meta: getOrderNotificationMeta(order),
+      tone: "danger",
+      screen: "screenControl",
+      actionLabel: "Revisar",
+      priority: 88,
+    }),
+    order.userId
+      ? createInternalNotification({
+          key: buildOrderNotificationKey(order, "cancelled-client", order.userId),
+          recipientRole: "cliente",
+          recipientUserId: order.userId,
+          orderId: order.id,
+          orderChannel: order.channel,
+          title: "Pedido cancelado",
+          copy: "Tu solicitud fue cancelada y quedo registrada en tu actividad.",
+          meta: getOrderNotificationMeta(order),
+          tone: "info",
+          screen: "screenActivity",
+          actionLabel: "Ver actividad",
+          priority: 60,
+        })
+      : Promise.resolve(),
+  ]);
+}
+
+async function createOrderStatusNotifications(order, status) {
+  if (!order) return;
+  const normalizedStatus = normalizeRequestedStatus(status || order.status);
+  const tasks = [];
+  const clientScreens = {
+    "en camino a recoger": {
+      title: "Repartidor en camino",
+      copy: "Ten listo el PIN de recogida y las prendas para entregarlas con seguridad.",
+      tone: "warning",
+      priority: 92,
+      screen: "screenHome",
+    },
+    "recogido al cliente": {
+      title: "Prendas recogidas",
+      copy: "Tu pedido fue recibido por el equipo de ruta y va camino al local.",
+      tone: "info",
+      priority: 80,
+      screen: "screenActivity",
+    },
+    "de camino al local": {
+      title: "Camino al local",
+      copy: "Tus prendas van hacia el local para iniciar el flujo de recepcion.",
+      tone: "info",
+      priority: 76,
+      screen: "screenActivity",
+    },
+    "recibido en local": {
+      title: "Pedido en el local",
+      copy: "Tus prendas ya estan dentro del flujo de recepcion y cuidado textil.",
+      tone: "info",
+      priority: 78,
+      screen: "screenActivity",
+    },
+    "en tratamiento": {
+      title: "Tratamiento activo",
+      copy: "Tu pedido esta en lavado, planchado o cuidado textil.",
+      tone: "info",
+      priority: 72,
+      screen: "screenActivity",
+    },
+    "listo para entrega": {
+      title: "Pedido listo",
+      copy: "Tus prendas estan listas para coordinar la entrega final.",
+      tone: "success",
+      priority: 88,
+      screen: "screenActivity",
+    },
+    "en camino a entregar": {
+      title: "Entrega en camino",
+      copy: "El pedido va hacia tu direccion. Ten el PIN de entrega disponible.",
+      tone: "warning",
+      priority: 94,
+      screen: "screenHome",
+    },
+    "entregado al cliente": {
+      title: "Entrega cerrada",
+      copy: "Tu servicio fue marcado como entregado. Puedes revisar factura y detalle en tu actividad.",
+      tone: "success",
+      priority: 82,
+      screen: "screenActivity",
+    },
+  };
+
+  const clientMeta = clientScreens[normalizedStatus];
+  if (order.userId && clientMeta) {
+    tasks.push(createInternalNotification({
+      key: buildOrderNotificationKey(order, `client-status-${normalizedStatus}`, order.userId),
+      recipientRole: "cliente",
+      recipientUserId: order.userId,
+      orderId: order.id,
+      orderChannel: order.channel,
+      title: clientMeta.title,
+      copy: clientMeta.copy,
+      meta: getOrderNotificationMeta(order),
+      tone: clientMeta.tone,
+      screen: clientMeta.screen,
+      actionLabel: "Ver pedido",
+      priority: clientMeta.priority,
+    }));
+  }
+
+  if (normalizedStatus === "de camino al local") {
+    tasks.push(createInternalNotification({
+      key: buildOrderNotificationKey(order, "cajera-camino-local", "cajera"),
+      recipientRole: "cajera",
+      orderId: order.id,
+      orderChannel: order.channel,
+      title: "Pedido camino al local",
+      copy: `${order.userName || "Cliente"} viene desde ruta para recepcion.`,
+      meta: getOrderNotificationMeta(order),
+      tone: "warning",
+      screen: "screenProduction",
+      actionLabel: "Ver produccion",
+      priority: 96,
+    }));
+  }
+
+  if (["recibido en local", "en tratamiento", "listo para entrega"].includes(normalizedStatus)) {
+    const localCopyByStatus = {
+      "recibido en local": "Este pedido necesita pesaje, observaciones o paso a tratamiento.",
+      "en tratamiento": "El pedido esta en lavado, planchado o cuidado textil.",
+      "listo para entrega": "El pedido puede coordinar entrega final.",
+    };
+    tasks.push(createInternalNotification({
+      key: buildOrderNotificationKey(order, `cajera-local-${normalizedStatus}`, "cajera"),
+      recipientRole: "cajera",
+      orderId: order.id,
+      orderChannel: order.channel,
+      title: formatStatusTitle(normalizedStatus),
+      copy: localCopyByStatus[normalizedStatus],
+      meta: getOrderNotificationMeta(order),
+      tone: normalizedStatus === "listo para entrega" ? "success" : "info",
+      screen: "screenProduction",
+      actionLabel: "Ver mesa",
+      priority: normalizedStatus === "listo para entrega" ? 90 : 82,
+    }));
+  }
+
+  if (normalizedStatus === "listo para entrega" && order.repartidorId) {
+    tasks.push(createInternalNotification({
+      key: buildOrderNotificationKey(order, "rider-ready", order.repartidorId),
+      recipientRole: "repartidor",
+      recipientUserId: order.repartidorId,
+      orderId: order.id,
+      orderChannel: order.channel,
+      title: "Pedido listo para entrega",
+      copy: `${order.userName || "Cliente"} puede pasar a ruta final.`,
+      meta: getOrderNotificationMeta(order),
+      tone: "success",
+      screen: "screenHome",
+      actionLabel: "Ver ruta",
+      priority: 88,
+    }));
+  }
+
+  if (normalizedStatus === "entregado al cliente") {
+    tasks.push(createInternalNotification({
+      key: buildOrderNotificationKey(order, "gestor-delivered", "gestor"),
+      recipientRole: "gestor",
+      orderId: order.id,
+      orderChannel: order.channel,
+      title: "Entrega completada",
+      copy: `${order.userName || "Cliente"} fue marcado como entregado.`,
+      meta: getOrderNotificationMeta(order),
+      tone: "success",
+      screen: "screenHistory",
+      actionLabel: "Ver historial",
+      priority: 66,
+    }));
+  }
+
+  await Promise.all(tasks);
+}
+
+function formatStatusTitle(status) {
+  const normalized = normalizeRequestedStatus(status);
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+async function syncOperationalNotificationsForUser(user) {
+  if (!user) return;
+  const tasks = [];
+
+  if (user.role === "cliente") {
+    if (!user.emailVerified) {
+      tasks.push(createInternalNotification({
+        key: `user:email-pending:${user.id}`,
+        recipientRole: "cliente",
+        recipientUserId: user.id,
+        title: "Correo pendiente",
+        copy: "Verifica tu correo para recibir avisos automaticos de ruta, local y entrega.",
+        meta: "Cuenta",
+        tone: "warning",
+        screen: "screenAccount",
+        actionLabel: "Ver cuenta",
+        priority: 95,
+      }));
+    }
+
+    const orders = await Order.find({ userId: user.id }).sort({ id: -1 }).limit(30).lean();
+    orders.filter((order) => !isOrderClosed(order.status)).forEach((order) => {
+      tasks.push(createOrderStatusNotifications(order, order.status));
+    });
+  }
+
+  if (user.role === "gestor") {
+    const orders = await Order.find({ channel: { $ne: "local" } }).sort({ id: -1 }).limit(80).lean();
+    orders.filter((order) => !isOrderClosed(order.status)).forEach((order) => {
+      if (!order.repartidorId || normalizeRequestedStatus(order.status) === "pendiente") {
+        tasks.push(createInternalNotification({
+          key: buildOrderNotificationKey(order, "gestor-unassigned", "gestor"),
+          recipientRole: "gestor",
+          orderId: order.id,
+          orderChannel: order.channel,
+          title: "Pedido sin asignar",
+          copy: `${order.userName || "Cliente"} espera repartidor en ${order.zone || "zona pendiente"}.`,
+          meta: getOrderNotificationMeta(order),
+          tone: "warning",
+          screen: "screenHome",
+          actionLabel: "Asignar",
+          priority: 100,
+        }));
+      }
+
+      if (isOrderDelayedForNotification(order)) {
+        tasks.push(createInternalNotification({
+          key: buildOrderNotificationKey(order, "gestor-delayed", "gestor"),
+          recipientRole: "gestor",
+          orderId: order.id,
+          orderChannel: order.channel,
+          title: "Pedido atrasado",
+          copy: `${order.userName || "Cliente"} requiere seguimiento por horario o estado.`,
+          meta: `${order.zone || "--"} | ${order.date || ""} ${order.time || ""}`,
+          tone: "danger",
+          screen: "screenControl",
+          actionLabel: "Revisar",
+          priority: 96,
+        }));
+      }
+
+      if (!hasOrderGps(order)) {
+        tasks.push(createInternalNotification({
+          key: buildOrderNotificationKey(order, "gestor-no-gps", "gestor"),
+          recipientRole: "gestor",
+          orderId: order.id,
+          orderChannel: order.channel,
+          title: "Pedido sin GPS",
+          copy: "La ruta puede operar con direccion manual, pero conviene validar el punto real.",
+          meta: getOrderNotificationMeta(order),
+          tone: "info",
+          screen: "screenControl",
+          actionLabel: "Ver control",
+          priority: 70,
+        }));
+      }
+    });
+  }
+
+  if (user.role === "repartidor") {
+    const orders = await Order.find({ repartidorId: user.id }).sort({ id: -1 }).limit(60).lean();
+    orders.filter((order) => !isOrderClosed(order.status)).forEach((order) => {
+      const status = normalizeRequestedStatus(order.status);
+      if (status === "asignado") {
+        tasks.push(createInternalNotification({
+          key: buildOrderNotificationKey(order, "rider-assigned", user.id),
+          recipientRole: "repartidor",
+          recipientUserId: user.id,
+          orderId: order.id,
+          orderChannel: order.channel,
+          title: "Nuevo pedido asignado",
+          copy: `${order.userName || "Cliente"} ya esta en tu ruta activa.`,
+          meta: getOrderNotificationMeta(order),
+          tone: "info",
+          screen: "screenHome",
+          actionLabel: "Ver ruta",
+          priority: 86,
+        }));
+      }
+
+      if (status === "en camino a recoger" || status === "en camino a entregar") {
+        tasks.push(createInternalNotification({
+          key: buildOrderNotificationKey(order, `rider-pin-${status}`, user.id),
+          recipientRole: "repartidor",
+          recipientUserId: user.id,
+          orderId: order.id,
+          orderChannel: order.channel,
+          title: status === "en camino a recoger" ? "Recogida con PIN" : "Entrega con PIN",
+          copy: status === "en camino a recoger"
+            ? "Antes de avanzar, pide el PIN de recogida al cliente."
+            : "Para cerrar el pedido necesitas el PIN de entrega del cliente.",
+          meta: getOrderNotificationMeta(order),
+          tone: "warning",
+          screen: "screenHome",
+          actionLabel: "Ver pedido",
+          priority: 94,
+        }));
+      }
+    });
+  }
+
+  if (user.role === "cajera") {
+    const orders = await Order.find({
+      $or: [{ channel: "local" }, { status: { $in: LOCAL_OPERATION_STATUSES } }],
+    }).sort({ id: -1 }).limit(80).lean();
+
+    orders.filter((order) => !isOrderClosed(order.status)).forEach((order) => {
+      const status = normalizeRequestedStatus(order.status);
+      if (["de camino al local", "recibido en local", "en tratamiento", "listo para entrega"].includes(status)) {
+        tasks.push(createOrderStatusNotifications(order, status));
+      }
+    });
+  }
+
+  await Promise.all(tasks);
+}
+
+async function getVisibleNotificationsForUser(user) {
+  await syncOperationalNotificationsForUser(user);
+  const notifications = await Notification.find(buildNotificationVisibilityQuery(user))
+    .sort({ priority: -1, createdAt: -1 })
+    .limit(60)
+    .lean();
+  return notifications
+    .filter((item) => !(user.emailVerified && item.key === `user:email-pending:${user.id}`))
+    .map((item) => publicNotification(item, user));
 }
 
 function asText(value) {
@@ -1199,6 +1748,7 @@ app.get(
         ? Order.find({ channel: "local" }).sort({ id: -1 }).lean()
         : Promise.resolve([]),
     ]);
+    const notifications = await getVisibleNotificationsForUser(req.user);
 
     res.json({
       user: publicUser(req.user),
@@ -1206,7 +1756,49 @@ app.get(
       repartidores: reps.map(publicUser),
       localOrders: localOrders.map((order) => publicOrder(order, req.user)),
       localOrdersLoaded: includeLocalOrders,
+      notifications,
     });
+  })
+);
+
+app.get(
+  "/api/notifications",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const notifications = await getVisibleNotificationsForUser(req.user);
+    res.json({ notifications });
+  })
+);
+
+app.put(
+  "/api/notifications/read",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const rawIds = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    const ids = rawIds.map(asText).filter(Boolean);
+    const query = buildNotificationVisibilityQuery(req.user);
+    if (!req.body?.all) {
+      if (!ids.length) {
+        return res.status(400).json({ message: "Debes indicar notificaciones para marcar como vistas." });
+      }
+      query.key = { $in: ids };
+    }
+
+    const notifications = await Notification.find(query).limit(100);
+    const now = new Date();
+    await Promise.all(
+      notifications.map(async (notification) => {
+        const alreadyRead = (notification.readReceipts || []).some(
+          (receipt) => Number(receipt.userId) === Number(req.user.id)
+        );
+        if (!alreadyRead) {
+          notification.readReceipts.push({ userId: req.user.id, readAt: now });
+          await notification.save();
+        }
+      })
+    );
+
+    res.json({ notifications: await getVisibleNotificationsForUser(req.user) });
   })
 );
 
@@ -1341,6 +1933,7 @@ app.post(
       history: [{ status: "pendiente", by: "cliente", at: new Date() }],
     });
 
+    await createOrderCreatedNotifications(order);
     res.json({ message: "Pedido creado", order: publicOrder(order, req.user) });
   })
 );
@@ -1387,6 +1980,7 @@ app.put(
     order.status = "asignado";
     addHistory(order, "asignado", "gestor");
     await order.save();
+    await createOrderAssignedNotifications(order, rep);
 
     res.json({ message: "Pedido asignado", order: publicOrder(order, req.user) });
   })
@@ -1462,6 +2056,7 @@ app.put(
     addHistory(order, normalizedStatus, "repartidor");
     await order.save();
     await sendOrderLifecycleNotification(order, normalizedStatus);
+    await createOrderStatusNotifications(order, normalizedStatus);
 
     res.json({ message: "Estado actualizado", order: publicOrder(order, req.user) });
   })
@@ -1510,6 +2105,7 @@ app.put(
     order.status = "cancelado";
     addHistory(order, "cancelado", "cliente");
     await order.save();
+    await createOrderCancelledNotifications(order);
 
     res.json({ message: "Pedido cancelado", order: publicOrder(order, req.user) });
   })
@@ -1607,6 +2203,20 @@ app.post(
     });
 
     await sendOrderLifecycleNotification(order, "recibido en local");
+    await createInternalNotification({
+      key: buildOrderNotificationKey(order, "local-created", "gestor"),
+      recipientRole: "gestor",
+      orderId: order.id,
+      orderChannel: order.channel,
+      title: "Pedido local registrado",
+      copy: `${order.userName || "Cliente"} fue recibido directamente en el local.`,
+      meta: getOrderNotificationMeta(order),
+      tone: "info",
+      screen: "screenLocal",
+      actionLabel: "Ver local",
+      priority: 72,
+    });
+    await createOrderStatusNotifications(order, "recibido en local");
 
     res.json({ message: "Pedido local creado", order: publicOrder(order, req.user) });
   })
@@ -1684,6 +2294,7 @@ app.put(
     await order.save();
     if (statusChanged) {
       await sendOrderLifecycleNotification(order, targetStatus);
+      await createOrderStatusNotifications(order, targetStatus);
     }
     res.json({ message: "Pedido actualizado en local", order: publicOrder(order, req.user) });
   })

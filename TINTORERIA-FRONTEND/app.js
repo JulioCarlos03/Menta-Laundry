@@ -58,6 +58,7 @@ let autoRefreshInFlight = false;
 let lastAutoRefreshAt = 0;
 let dashboardDataVersion = 0;
 let appEntryVisibleAt = 0;
+let internalNotificationsCache = [];
 const screenRenderVersions = new Map();
 const dashboardResourceState = {
   localOrdersLoaded: false,
@@ -1804,11 +1805,74 @@ function writeInternalNotificationIds(ids) {
   localStorage.setItem(key, JSON.stringify(unique));
 }
 
+function getServerNotificationId(item) {
+  return String(item?.id || item?.key || item?._id || "").trim();
+}
+
+function normalizeServerInternalNotification(item) {
+  const id = getServerNotificationId(item);
+  if (!id || !item?.title || !item?.copy) return null;
+  return {
+    id,
+    source: "server",
+    tone: item.tone || "info",
+    title: item.title,
+    copy: item.copy,
+    meta: item.meta || "",
+    screen: item.screen || "screenHome",
+    actionLabel: item.actionLabel || "Abrir",
+    priority: Number(item.priority || 0),
+    createdAt: item.createdAt || new Date().toISOString(),
+    read: Boolean(item.read),
+    readAt: item.readAt || null,
+  };
+}
+
+function setServerInternalNotifications(notifications) {
+  if (!Array.isArray(notifications)) return;
+  internalNotificationsCache = notifications
+    .map(normalizeServerInternalNotification)
+    .filter(Boolean);
+}
+
+function isNotificationRead(item, readIds = readInternalNotificationIds()) {
+  if (item?.source === "server") return Boolean(item.read);
+  return readIds.has(String(item?.id || ""));
+}
+
+function updateCachedNotificationsAsRead(ids = []) {
+  const idSet = new Set(ids.map(String));
+  internalNotificationsCache = internalNotificationsCache.map((item) => (
+    idSet.has(String(item.id)) || idSet.has(String(item.key))
+      ? { ...item, read: true, readAt: item.readAt || new Date().toISOString() }
+      : item
+  ));
+}
+
 function markInternalNotificationsRead(ids = []) {
   const readIds = readInternalNotificationIds();
-  ids.filter(Boolean).forEach((id) => readIds.add(String(id)));
+  const normalizedIds = ids.filter(Boolean).map(String);
+  normalizedIds.forEach((id) => readIds.add(id));
   writeInternalNotificationIds(Array.from(readIds));
+  updateCachedNotificationsAsRead(normalizedIds);
   renderInternalNotifications();
+
+  const serverIds = normalizedIds.filter((id) => internalNotificationsCache.some((item) => String(item.id) === id));
+  if (serverIds.length) {
+    apiPut("/notifications/read", { ids: serverIds })
+      .then((payload) => {
+        const notifications = Array.isArray(payload?.notifications)
+          ? payload.notifications
+          : Array.isArray(payload)
+            ? payload
+            : [];
+        setServerInternalNotifications(notifications);
+        renderInternalNotifications();
+      })
+      .catch((error) => {
+        showWarning(error?.message || "No pudimos guardar el visto de las notificaciones.");
+      });
+  }
 }
 
 function getOrderNotificationStamp(order) {
@@ -2151,6 +2215,17 @@ function buildCashierInternalNotifications(list) {
 
 function buildInternalNotifications() {
   if (!currentUser) return [];
+  if (internalNotificationsCache.length) {
+    return [...internalNotificationsCache]
+      .sort((a, b) => {
+        const readDiff = Number(isNotificationRead(a)) - Number(isNotificationRead(b));
+        if (readDiff) return readDiff;
+        const priorityDiff = Number(b.priority || 0) - Number(a.priority || 0);
+        if (priorityDiff) return priorityDiff;
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      })
+      .slice(0, 12);
+  }
 
   const list = [];
   if (currentUser.role === "cliente") buildClientInternalNotifications(list);
@@ -2226,7 +2301,7 @@ function renderInternalNotifications() {
   show(trigger);
   const notifications = buildInternalNotifications();
   const readIds = readInternalNotificationIds();
-  const unread = notifications.filter((item) => !readIds.has(item.id));
+  const unread = notifications.filter((item) => !isNotificationRead(item, readIds));
   const countNode = qs("#internalNotificationCount");
 
   if (countNode) {
@@ -2257,7 +2332,7 @@ function renderInternalNotifications() {
         ${
           notifications.length
             ? notifications.map((item) => {
-                const isUnread = !readIds.has(item.id);
+                const isUnread = !isNotificationRead(item, readIds);
                 return `
                   <article class="internal-notification-item internal-notification-${escapeHtml(item.tone)} ${isUnread ? "is-unread" : ""}">
                     <div class="internal-notification-dot" aria-hidden="true"></div>
@@ -2695,6 +2770,7 @@ function applyDashboardPayload(payload = {}, { merge = false } = {}) {
   const hasOrders = Array.isArray(payload.orders);
   const hasRiders = Array.isArray(payload.repartidores);
   const hasLocalOrders = Array.isArray(payload.localOrders);
+  const hasNotifications = Array.isArray(payload.notifications);
 
   if (hasOrders || !merge) {
     ordersCache = hasOrders ? payload.orders : [];
@@ -2706,6 +2782,10 @@ function applyDashboardPayload(payload = {}, { merge = false } = {}) {
 
   if (hasLocalOrders || !merge) {
     localOrdersCache = hasLocalOrders ? payload.localOrders : [];
+  }
+
+  if (hasNotifications || !merge) {
+    setServerInternalNotifications(hasNotifications ? payload.notifications : []);
   }
 
   if (Object.prototype.hasOwnProperty.call(payload, "localOrdersLoaded")) {
@@ -2730,10 +2810,19 @@ async function fetchDashboardPayload(screenId = getActiveScreenId()) {
   try {
     const payload = await apiGet(bootstrapPath);
     const bootstrapHasLocalOrders = Array.isArray(payload?.localOrders);
+    const bootstrapHasNotifications = Array.isArray(payload?.notifications);
     const localOrders = bootstrapHasLocalOrders
       ? payload.localOrders
       : shouldFetchLocalOrders
         ? await apiGet("/local-orders").catch(() => [])
+        : [];
+    const notificationPayload = bootstrapHasNotifications
+      ? { notifications: payload.notifications }
+      : await apiGet("/notifications").catch(() => ({ notifications: [] }));
+    const notifications = Array.isArray(notificationPayload?.notifications)
+      ? notificationPayload.notifications
+      : Array.isArray(notificationPayload)
+        ? notificationPayload
         : [];
 
     return {
@@ -2742,21 +2831,29 @@ async function fetchDashboardPayload(screenId = getActiveScreenId()) {
       repartidores: Array.isArray(payload?.repartidores) ? payload.repartidores : [],
       localOrders,
       localOrdersLoaded: bootstrapHasLocalOrders ? Boolean(payload?.localOrdersLoaded) || shouldFetchLocalOrders : shouldFetchLocalOrders,
+      notifications,
     };
   } catch (_error) {
     const shouldFetchRiders = currentUser?.role === "gestor";
 
-    const [orders, repartidores, localOrders] = await Promise.all([
+    const [orders, repartidores, localOrders, notificationPayload] = await Promise.all([
       apiGet("/orders"),
       shouldFetchRiders ? apiGet("/repartidores") : Promise.resolve([]),
       shouldFetchLocalOrders ? apiGet("/local-orders").catch(() => []) : Promise.resolve([]),
+      apiGet("/notifications").catch(() => ({ notifications: [] })),
     ]);
+    const notifications = Array.isArray(notificationPayload?.notifications)
+      ? notificationPayload.notifications
+      : Array.isArray(notificationPayload)
+        ? notificationPayload
+        : [];
 
     return {
       orders,
       repartidores,
       localOrders,
       localOrdersLoaded: shouldFetchLocalOrders,
+      notifications,
     };
   }
 }
