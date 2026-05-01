@@ -32,6 +32,10 @@ const historySchema = new mongoose.Schema(
   {
     status: { type: String, required: true, trim: true },
     by: { type: String, required: true, trim: true },
+    byRole: { type: String, default: "", trim: true },
+    byUserId: { type: Number, default: null },
+    byName: { type: String, default: "", trim: true },
+    note: { type: String, default: "", trim: true },
     at: { type: Date, default: Date.now },
   },
   { _id: false }

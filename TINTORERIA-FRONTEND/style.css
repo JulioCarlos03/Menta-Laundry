@@ -9077,6 +9077,111 @@ body.theme-light .history-filter select{
   background: rgba(217,181,111,.13);
 }
 
+.history-audit-card{
+  background:
+    radial-gradient(520px 220px at 100% 0%, rgba(88,215,198,.10), transparent 70%),
+    linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)),
+    var(--card);
+}
+
+.history-audit-feed{
+  margin-top: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.history-audit-item{
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 13px;
+  align-items: flex-start;
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+}
+
+body.theme-light .history-audit-item{
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.98), rgba(244,252,252,.90)),
+    rgba(255,255,255,.96);
+}
+
+.history-audit-dot{
+  width: 14px;
+  height: 14px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--mint), var(--accent));
+  box-shadow: 0 0 0 7px rgba(88,215,198,.12);
+}
+
+.history-audit-main{
+  min-width: 0;
+}
+
+.history-audit-kicker{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.history-audit-main strong{
+  display: block;
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.history-audit-main p,
+.history-audit-main small{
+  display: block;
+  margin: 5px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.history-audit-main small{
+  color: var(--text);
+  opacity: .82;
+}
+
+.history-audit-time{
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.history-audit-time span{
+  color: var(--text);
+  font-size: .9rem;
+}
+
+.history-audit-empty{
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px dashed rgba(88,215,198,.26);
+  color: var(--muted);
+  background: rgba(88,215,198,.07);
+}
+
+.detail-history-note{
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: .86rem;
+  line-height: 1.4;
+}
+
 .history-actions{
   display: flex;
   flex-wrap: wrap;
@@ -10840,6 +10945,15 @@ body.theme-light .bottom-nav{
 
   .history-mobile-card .history-actions .btn{
     flex: 1 1 130px;
+  }
+
+  .history-audit-item{
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .history-audit-time{
+    grid-column: 2;
+    justify-items: start;
   }
 }
 

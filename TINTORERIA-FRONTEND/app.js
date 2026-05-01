@@ -2811,7 +2811,7 @@ async function fetchDashboardPayload(screenId = getActiveScreenId()) {
     const payload = await apiGet(bootstrapPath);
     const bootstrapHasLocalOrders = Array.isArray(payload?.localOrders);
     const bootstrapHasNotifications = Array.isArray(payload?.notifications);
-    const localOrders = bootstrapHasLocalOrders
+    const localOrders = bootstrapHasLocalOrders && (payload?.localOrdersLoaded || !shouldFetchLocalOrders)
       ? payload.localOrders
       : shouldFetchLocalOrders
         ? await apiGet("/local-orders").catch(() => [])
@@ -3680,12 +3680,40 @@ function getFilteredClientOrders(stats, filterKey) {
   return stats.my;
 }
 
+function getAuditActorLabel(item, { compact = false } = {}) {
+  const role = currentUser?.role || "cliente";
+  const actorRole = String(item?.byRole || item?.by || "sistema").trim();
+  const actorName = String(item?.byName || "").trim();
+  const normalizedRole = actorRole.toLowerCase();
+
+  if (role === "cliente") return "Menta Laundry";
+  if (role === "repartidor") return normalizedRole === "repartidor" ? "Mi ruta" : "Menta Laundry";
+
+  if (role === "gestor") {
+    if (actorName) return compact ? actorName : `${actorName} (${formatRoleLabel(normalizedRole)})`;
+    return formatRoleLabel(normalizedRole || actorRole);
+  }
+
+  if (role === "cajera") {
+    if (actorName && ["gestor", "cajera", "repartidor"].includes(normalizedRole)) {
+      return compact ? actorName : `${actorName} (${formatRoleLabel(normalizedRole)})`;
+    }
+    return normalizedRole === "cliente" ? "Cliente" : formatRoleLabel(normalizedRole || actorRole);
+  }
+
+  return formatRoleLabel(normalizedRole || actorRole);
+}
+
+function getAuditNoteText(item) {
+  return String(item?.note || "").trim();
+}
+
 function getOrderLatestMovementText(order) {
   const history = Array.isArray(order?.history) ? order.history : [];
   const last = history[history.length - 1];
   if (!last) return "Seguimiento disponible tan pronto el servicio tenga nuevos movimientos.";
 
-  const actor = String(last.by || "").trim() || "sistema";
+  const actor = getAuditActorLabel(last, { compact: true });
   const time = last.at ? fmtTime(last.at) : "";
   return `${formatStatusLabel(last.status)} (${actor})${time ? ` | ${time}` : ""}`;
 }
@@ -4876,7 +4904,7 @@ function openInvoice(ev) {
   const attendedBy = order.repartidorName ? `Atendido por: ${order.repartidorName}` : "";
   const historyLines = (order.history || [])
     .slice(-5)
-    .map((h) => `&bull; ${formatStatusLabel(h.status)} (${formatRoleLabel(h.by)}) ${fmtTime(h.at)}`)
+    .map((h) => `&bull; ${escapeHtml(formatStatusLabel(h.status))} (${escapeHtml(getAuditActorLabel(h, { compact: true }))}) ${escapeHtml(fmtTime(h.at))}`)
     .join("<br>");
 
   qs("#invoiceClient").innerHTML = `
@@ -9997,6 +10025,39 @@ function getFilteredOperationalHistoryRows() {
   });
 }
 
+function getOperationalAuditTimestamp(item) {
+  const value = new Date(item?.at || 0).getTime();
+  return Number.isFinite(value) ? value : 0;
+}
+
+function isOperationalAuditEntryVisible(row, item) {
+  if (currentUser?.role !== "cajera") return true;
+  const status = normalizeStatusValue(item?.status);
+  return ["de camino al local", "recibido en local", "en tratamiento", "listo para entrega"].includes(status);
+}
+
+function getFilteredOperationalAuditEntries(rows) {
+  return rows
+    .flatMap((row) => {
+      const history = Array.isArray(row.order?.history) ? row.order.history : [];
+      return history
+        .filter((item) => isOperationalAuditEntryVisible(row, item))
+        .map((item) => ({
+          row,
+          order: row.order,
+          source: row.source,
+          sourceLabel: row.sourceLabel,
+          item,
+          timestamp: getOperationalAuditTimestamp(item),
+        }));
+    })
+    .sort((a, b) => {
+      if (b.timestamp !== a.timestamp) return b.timestamp - a.timestamp;
+      return Number(b.order?.id || 0) - Number(a.order?.id || 0);
+    })
+    .slice(0, 12);
+}
+
 function renderHistoryOption(value, label, currentValue) {
   return `<option value="${escapeHtml(value)}" ${String(currentValue) === String(value) ? "selected" : ""}>${escapeHtml(label)}</option>`;
 }
@@ -10008,6 +10069,29 @@ function renderOperationalHistoryMetric(label, value, note = "") {
       <strong>${escapeHtml(value)}</strong>
       ${note ? `<small>${escapeHtml(note)}</small>` : ""}
     </div>
+  `;
+}
+
+function renderOperationalAuditEntry(entry) {
+  const order = entry.order || {};
+  const item = entry.item || {};
+  const note = getAuditNoteText(item);
+  const sourceClass = entry.source === "local" ? "history-source-local" : "history-source-domicilio";
+
+  return `
+    <article class="history-audit-item">
+      <div class="history-audit-dot"></div>
+      <div class="history-audit-main">
+        <div class="history-audit-kicker">
+          <span class="history-source-badge ${sourceClass}">${escapeHtml(entry.sourceLabel)}</span>
+          <span>Pedido #${escapeHtml(String(order.id || "--"))}</span>
+        </div>
+        <strong>${escapeHtml(formatStatusLabel(item.status))}</strong>
+        <p>${escapeHtml(order.userName || "Cliente")} | ${escapeHtml(normalizeZoneName(order.zone))} | ${escapeHtml(getAuditActorLabel(item))}</p>
+        ${note ? `<small>${escapeHtml(note)}</small>` : ""}
+      </div>
+      <time class="history-audit-time">${escapeHtml(fmtDate(item.at))}<span>${escapeHtml(fmtTime(item.at) || "--")}</span></time>
+    </article>
   `;
 }
 
@@ -10081,6 +10165,7 @@ function renderOperationalHistoryMobileCard(row) {
 
 function renderOperationalHistoryResults() {
   const rows = getFilteredOperationalHistoryRows();
+  const auditEntries = getFilteredOperationalAuditEntries(rows);
   const today = new Date().toISOString().slice(0, 10);
   const activeCount = rows.filter((row) => !isClosedOrderStatus(row.order?.status)).length;
   const deliveredCount = rows.filter((row) => isFinalDeliveryStatus(row.order?.status)).length;
@@ -10101,6 +10186,18 @@ function renderOperationalHistoryResults() {
   const summary = qs("#historyResultsSummary");
   if (summary) {
     summary.textContent = `${rows.length} pedidos visibles | ${activeCount} activos | ${deliveredCount} cerrados`;
+  }
+
+  const auditSummary = qs("#historyAuditSummary");
+  if (auditSummary) {
+    auditSummary.textContent = `${auditEntries.length} movimientos recientes segun filtros`;
+  }
+
+  const auditFeed = qs("#historyAuditFeed");
+  if (auditFeed) {
+    auditFeed.innerHTML = auditEntries.length
+      ? auditEntries.map(renderOperationalAuditEntry).join("")
+      : `<div class="history-audit-empty">No hay movimientos auditables con estos filtros.</div>`;
   }
 
   const tbody = qs("#historyTableBody");
@@ -10162,6 +10259,12 @@ function renderOperationalHistory() {
   if (!panel) return;
 
   const rows = getOperationalHistoryRows();
+  const isCashierView = currentUser?.role === "cajera";
+  const viewBadge = isCashierView ? "Vista caja" : "Vista gestor";
+  const heroTitle = isCashierView ? "Auditoria del local y produccion" : "Auditoria operativa completa";
+  const heroCopy = isCashierView
+    ? "Caja revisa recepcion, pesaje, tratamiento y salida sin exponer informacion administrativa de mas."
+    : "Gestor revisa domicilio, local, asignaciones, facturas, detalles y movimientos con trazabilidad completa.";
   const zones = Array.from(new Set(rows.map((row) => normalizeZoneName(row.order?.zone)))).sort((a, b) => a.localeCompare(b, "es"));
   const riders = repartidoresCache
     .filter((rider) => rider?.id)
@@ -10179,12 +10282,24 @@ function renderOperationalHistory() {
       <div class="executive-head">
         <div>
           <div class="card-eyebrow">Historial operativo</div>
-          <div class="card-title">Buscar, filtrar y revisar pedidos</div>
-          <div class="card-secondary">Una vista para gestor y caja con domicilio, local, facturas, detalles y movimientos recientes.</div>
+          <div class="card-title">${escapeHtml(heroTitle)}</div>
+          <div class="card-secondary">${escapeHtml(heroCopy)}</div>
         </div>
-        <span class="estimate-badge">${rows.length} registrados</span>
+        <span class="estimate-badge">${escapeHtml(viewBadge)}</span>
       </div>
       <div id="historyMetrics" class="history-metrics"></div>
+    </div>
+
+    <div class="card card-spaced history-audit-card">
+      <div class="executive-head">
+        <div>
+          <div class="card-eyebrow">Bitacora</div>
+          <div class="card-title">Movimientos recientes</div>
+          <div class="card-secondary">Registro rapido de quien hizo cada cambio y en que momento.</div>
+        </div>
+        <span id="historyAuditSummary" class="estimate-badge">${rows.length} pedidos</span>
+      </div>
+      <div id="historyAuditFeed" class="history-audit-feed"></div>
     </div>
 
     <div class="card card-spaced history-filter-card">
@@ -10645,7 +10760,7 @@ function openInvoice(ev) {
   const historyLines = (order.history || [])
     .slice(-5)
     .reverse()
-    .map((h) => `&bull; ${escapeHtml(formatStatusLabel(h.status))} (${escapeHtml(formatRoleLabel(h.by))}) ${escapeHtml(fmtDate(h.at))} ${escapeHtml(fmtTime(h.at))}`)
+    .map((h) => `&bull; ${escapeHtml(formatStatusLabel(h.status))} (${escapeHtml(getAuditActorLabel(h, { compact: true }))}) ${escapeHtml(fmtDate(h.at))} ${escapeHtml(fmtTime(h.at))}`)
     .join("<br>");
   const deliveryProof = getDeliveryProof(order);
 
@@ -10758,10 +10873,16 @@ function openDetail(ev) {
   const historyItems = (order.history || [])
     .slice()
     .reverse()
-    .map(
-      (item) =>
-        `<li><strong>${escapeHtml(formatStatusLabel(item.status))}</strong> | ${escapeHtml(formatRoleLabel(item.by))} | ${escapeHtml(fmtDate(item.at))} ${escapeHtml(fmtTime(item.at))}</li>`
-    )
+    .map((item) => {
+      const note = getAuditNoteText(item);
+      return `
+        <li>
+          <strong>${escapeHtml(formatStatusLabel(item.status))}</strong>
+          <span> | ${escapeHtml(getAuditActorLabel(item))} | ${escapeHtml(fmtDate(item.at))} ${escapeHtml(fmtTime(item.at))}</span>
+          ${note ? `<div class="detail-history-note">${escapeHtml(note)}</div>` : ""}
+        </li>
+      `;
+    })
     .join("");
 
   qs("#detailSubtitle").textContent = `Pedido #${order.id} | ${formatStatusLabel(order.status)}`;

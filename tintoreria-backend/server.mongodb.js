@@ -169,6 +169,65 @@ function normalizeOrderForPublic(order) {
   return order?.toObject ? order.toObject() : { ...order };
 }
 
+function normalizeHistoryActorRole(item) {
+  return asText(item?.byRole || item?.by || "sistema").toLowerCase() || "sistema";
+}
+
+function sanitizeOrderHistoryForUser(history, user) {
+  const items = Array.isArray(history) ? history : [];
+  const role = user?.role || "cliente";
+  const localAuditStatuses = new Set(LOCAL_OPERATION_STATUSES);
+
+  return items
+    .filter((item) => {
+      if (role !== "cajera") return true;
+      return localAuditStatuses.has(normalizeRequestedStatus(item?.status));
+    })
+    .map((item) => {
+      const status = asText(item?.status);
+      const actorRole = normalizeHistoryActorRole(item);
+      const base = {
+        status,
+        by: actorRole,
+        at: item?.at || new Date(),
+      };
+
+      if (role === "gestor") {
+        return {
+          ...base,
+          byRole: actorRole,
+          byUserId: item?.byUserId ?? null,
+          byName: asText(item?.byName),
+          note: asText(item?.note),
+        };
+      }
+
+      if (role === "cajera") {
+        return {
+          ...base,
+          byRole: actorRole,
+          byName: ["gestor", "cajera", "repartidor"].includes(actorRole) ? asText(item?.byName) : "",
+          note: asText(item?.note),
+        };
+      }
+
+      if (role === "repartidor") {
+        return {
+          ...base,
+          by: actorRole === "repartidor" ? "repartidor" : "operacion",
+          byRole: actorRole === "repartidor" ? "repartidor" : "operacion",
+        };
+      }
+
+      return {
+        status,
+        by: "Menta Laundry",
+        byRole: "Menta Laundry",
+        at: item?.at || new Date(),
+      };
+    });
+}
+
 function buildDeliveryCode(order) {
   const safeOrder = normalizeOrderForPublic(order) || {};
   const createdAt = safeOrder.createdAt ? new Date(safeOrder.createdAt) : null;
@@ -225,6 +284,8 @@ function canExposePickupCode(order, user) {
 function publicOrder(order, user) {
   const safeOrder = normalizeOrderForPublic(order);
   if (!safeOrder) return safeOrder;
+
+  safeOrder.history = sanitizeOrderHistoryForUser(safeOrder.history, user);
 
   if (canExposePickupCode(safeOrder, user)) {
     safeOrder.pickupCode = buildPickupCode(safeOrder);
@@ -705,9 +766,24 @@ function normalizeLocation(location) {
   };
 }
 
-function addHistory(order, status, by) {
+function createHistoryEntry(status, by, actor = null, note = "") {
+  const actorId = actor?.id === undefined || actor?.id === null ? null : Number(actor.id);
+  const byRole = asText(actor?.role || by || "sistema").toLowerCase() || "sistema";
+
+  return {
+    status: normalizeRequestedStatus(status),
+    by: asText(by || byRole || "sistema"),
+    byRole,
+    byUserId: Number.isFinite(actorId) ? actorId : null,
+    byName: asText(actor?.name),
+    note: asText(note).slice(0, 240),
+    at: new Date(),
+  };
+}
+
+function addHistory(order, status, by, actor = null, note = "") {
   if (!Array.isArray(order.history)) order.history = [];
-  order.history.push({ status, by, at: new Date() });
+  order.history.push(createHistoryEntry(status, by, actor, note));
 }
 
 function getOrderStatusRank(status) {
@@ -1737,7 +1813,9 @@ app.get(
 
     const canReviewLocalOrders = ["gestor", "cajera"].includes(req.user.role);
     const canReviewRiders = req.user.role === "gestor";
-    const includeLocalOrders = req.user.role === "cajera" || (req.user.role === "gestor" && requestedScreen === "screenLocal");
+    const includeLocalOrders =
+      req.user.role === "cajera" ||
+      (req.user.role === "gestor" && ["screenLocal", "screenHistory"].includes(requestedScreen));
 
     const [orders, reps, localOrders] = await Promise.all([
       Order.find(ordersQuery).sort({ id: 1 }).lean(),
@@ -1930,7 +2008,7 @@ app.post(
       lbs: Number(lbs) || 0,
       channel: "domicilio",
       createdAt: new Date(),
-      history: [{ status: "pendiente", by: "cliente", at: new Date() }],
+      history: [createHistoryEntry("pendiente", "cliente", user, "Pedido creado por cliente")],
     });
 
     await createOrderCreatedNotifications(order);
@@ -1978,7 +2056,7 @@ app.put(
     order.repartidorId = rep.id;
     order.repartidorName = rep.name;
     order.status = "asignado";
-    addHistory(order, "asignado", "gestor");
+    addHistory(order, "asignado", "gestor", req.user, `Asignado a ${rep.name}`);
     await order.save();
     await createOrderAssignedNotifications(order, rep);
 
@@ -2053,7 +2131,7 @@ app.put(
       order.pickupProof = normalizedPickupProof;
     }
 
-    addHistory(order, normalizedStatus, "repartidor");
+    addHistory(order, normalizedStatus, "repartidor", req.user, formatStatusTitle(normalizedStatus));
     await order.save();
     await sendOrderLifecycleNotification(order, normalizedStatus);
     await createOrderStatusNotifications(order, normalizedStatus);
@@ -2103,7 +2181,7 @@ app.put(
     }
 
     order.status = "cancelado";
-    addHistory(order, "cancelado", "cliente");
+    addHistory(order, "cancelado", "cliente", req.user, "Cancelacion solicitada por cliente");
     await order.save();
     await createOrderCancelledNotifications(order);
 
@@ -2199,7 +2277,7 @@ app.post(
       lbs: Number(lbs) || 0,
       channel: "local",
       createdAt: now,
-      history: [{ status: "recibido en local", by: "cajera", at: now }],
+      history: [createHistoryEntry("recibido en local", req.user.role === "gestor" ? "gestor" : "cajera", req.user, "Pedido recibido directamente en el local")],
     });
 
     await sendOrderLifecycleNotification(order, "recibido en local");
@@ -2288,7 +2366,13 @@ app.put(
       order.notes = asText(notes);
     }
     if (statusChanged) {
-      addHistory(order, targetStatus, req.user.role === "gestor" ? "gestor" : "cajera");
+      addHistory(
+        order,
+        targetStatus,
+        req.user.role === "gestor" ? "gestor" : "cajera",
+        req.user,
+        notes ? asText(notes).slice(0, 160) : "Movimiento actualizado en el local"
+      );
     }
 
     await order.save();
