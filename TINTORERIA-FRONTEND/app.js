@@ -3662,10 +3662,10 @@ function buildClientOrderStats(clientOrders) {
 }
 
 function getClientActivityFilters(stats) {
+  const visibleInActivity = stats.my.filter((order) => !isFinalDeliveryStatus(order.status));
   return [
-    { key: "all", label: "Todo", count: stats.my.length },
+    { key: "all", label: "En seguimiento", count: visibleInActivity.length },
     { key: "active", label: "Activos", count: stats.activeCount },
-    { key: "delivered", label: "Entregados", count: stats.delivered.length },
     { key: "cancelled", label: "Cancelados", count: stats.cancelled.length },
   ];
 }
@@ -3675,9 +3675,12 @@ function getFilteredClientOrders(stats, filterKey) {
   if (normalized === "active") {
     return stats.my.filter((order) => !isClosedOrderStatus(order.status));
   }
-  if (normalized === "delivered") return stats.delivered;
   if (normalized === "cancelled") return stats.cancelled;
-  return stats.my;
+  return stats.my.filter((order) => !isFinalDeliveryStatus(order.status));
+}
+
+function getClientActivityReferenceOrder(stats) {
+  return stats.active || stats.my.find((order) => !isFinalDeliveryStatus(order.status)) || null;
 }
 
 function getAuditActorLabel(item, { compact = false } = {}) {
@@ -4267,7 +4270,7 @@ function renderClientActivity() {
 
   const greetingName = String(currentUser?.name || "Cliente").trim().split(/\s+/)[0] || "Cliente";
   const careTier = getClientCareTier(stats.my.length);
-  const featuredOrder = stats.active || stats.recentDelivered || stats.recentOrder || null;
+  const featuredOrder = getClientActivityReferenceOrder(stats);
   const filteredOrders = getFilteredClientOrders(stats, clientActivityFilter);
 
   if (summaryCard) {
@@ -4275,21 +4278,21 @@ function renderClientActivity() {
       <div class="activity-hero-row">
         <div>
           <div class="card-title">Seguimiento premium para ${escapeHtml(greetingName)}</div>
-          <div class="card-secondary">Lee tus pedidos como una bitacora clara: estado, ruta, detalle, factura y mapa desde una misma vista.</div>
+          <div class="card-secondary">Esta vista queda enfocada en lo que esta pasando ahora. Los servicios completados viven en Cuenta como historial privado.</div>
         </div>
         ${getClientVerificationBadgeMarkup()}
       </div>
       <div class="executive-grid client-executive-grid">
         <div class="executive-metric">
-          <span>Historial</span>
-          <strong>${stats.my.length}</strong>
+          <span>En seguimiento</span>
+          <strong>${getFilteredClientOrders(stats, "all").length}</strong>
         </div>
         <div class="executive-metric">
           <span>Activos</span>
           <strong>${stats.activeCount}</strong>
         </div>
         <div class="executive-metric">
-          <span>Entregados</span>
+          <span>En cuenta</span>
           <strong>${stats.delivered.length}</strong>
         </div>
         <div class="executive-metric">
@@ -4300,7 +4303,7 @@ function renderClientActivity() {
       <div class="client-spotlight activity-spotlight">
         <div class="client-spotlight-copy">
           <strong>${featuredOrder ? `Pedido #${featuredOrder.id} como referencia principal` : "Tu panel esta listo para recibir pedidos"}</strong>
-          <span>${featuredOrder ? `${escapeHtml(getOrderPrimaryPackLabel(featuredOrder))} | ${escapeHtml(featuredOrder.zone || "Zona por definir")} | ${escapeHtml(getOrderLatestMovementText(featuredOrder))}` : "Cuando confirmes tu primer servicio, esta vista te dejara seguirlo sin perder detalle."}</span>
+          <span>${featuredOrder ? `${escapeHtml(getOrderPrimaryPackLabel(featuredOrder))} | ${escapeHtml(featuredOrder.zone || "Zona por definir")} | ${escapeHtml(getOrderLatestMovementText(featuredOrder))}` : "Cuando confirmes un servicio activo, esta vista te dejara seguirlo sin ruido."}</span>
         </div>
         <div class="client-spotlight-side">
           <small>Nivel actual</small>
@@ -4316,7 +4319,7 @@ function renderClientActivity() {
         <div class="client-luxury-card">
           <span>Ultima entrega</span>
           <strong>${stats.recentDelivered ? fmtDate(stats.recentDelivered.date) : "Pendiente"}</strong>
-          <small>${escapeHtml(stats.recentDelivered ? getOrderPrimaryPackLabel(stats.recentDelivered) : "Tu primera entrega confirmada aparecera aqui.")}</small>
+          <small>${escapeHtml(stats.recentDelivered ? "Disponible en Cuenta > Historial de servicios." : "Tu primera entrega confirmada aparecera en Cuenta.")}</small>
         </div>
         <div class="client-luxury-card">
           <span>Zona reciente</span>
@@ -4342,7 +4345,7 @@ function renderClientActivity() {
         <div class="activity-focus-top">
           <div>
             <div class="card-title">${stats.active ? "Pedido en seguimiento" : "Pedido destacado"}</div>
-            <div class="card-secondary">${stats.active ? "Este es el servicio que mas atencion necesita ahora mismo." : "Te mostramos el pedido mas reciente para que tengas referencia inmediata."}</div>
+            <div class="card-secondary">${stats.active ? "Este es el servicio que mas atencion necesita ahora mismo." : "Te mostramos el movimiento pendiente o cancelado mas reciente; los entregados quedan archivados en Cuenta."}</div>
           </div>
           <div class="activity-focus-side">
             <span>${stats.active ? "En curso" : "Referencia"}</span>
@@ -4405,7 +4408,7 @@ function renderClientActivity() {
       <div class="activity-feed-head">
         <div>
           <div class="card-title">Historial visible</div>
-          <div class="card-secondary">Filtra tus pedidos para revisar solo lo que importa ahora: servicios activos, entregas o cancelaciones.</div>
+          <div class="card-secondary">Revisa servicios en seguimiento y cancelaciones. Las entregas completas se guardan en Cuenta para no cargar esta pantalla.</div>
         </div>
         <div class="estimate-badge">${escapeHtml(filters.find((item) => item.key === clientActivityFilter)?.label || "Todo")}</div>
       </div>
@@ -4440,11 +4443,17 @@ function renderClientActivity() {
     `;
   } else if (!filteredOrders.length) {
     const activeFilterLabel = filters.find((item) => item.key === clientActivityFilter)?.label || "seleccion";
+    const accountHint = stats.delivered.length
+      ? ` Tienes ${stats.delivered.length} servicio${stats.delivered.length === 1 ? "" : "s"} completo${stats.delivered.length === 1 ? "" : "s"} guardado${stats.delivered.length === 1 ? "" : "s"} en Cuenta.`
+      : "";
     timeline.innerHTML = `
       <li class="timeline-empty">
         <div class="timeline-empty-shell">
           <strong>No hay pedidos en ${escapeHtml(activeFilterLabel.toLowerCase())} ahora mismo.</strong>
-          <span>Puedes cambiar el filtro o volver al historial completo para seguir revisando tus servicios.</span>
+          <span>Puedes cambiar el filtro o revisar tu historial privado en Cuenta.${escapeHtml(accountHint)}</span>
+          <div class="timeline-actions timeline-empty-actions">
+            <button class="btn btn-small btn-outline" type="button" data-go-account="1">Ver historial en cuenta</button>
+          </div>
         </div>
       </li>
     `;
@@ -4546,6 +4555,111 @@ function renderClientActivity() {
   });
 }
 
+function renderAccountServiceHistoryItem(order) {
+  const packs = getOrderPacks(order);
+  const proof = getDeliveryProof(order);
+  const serviceMoment = [fmtDate(order.date), fmtTime(order.time)].filter(Boolean).join(" | ");
+  const deliveredMoment = proof ? formatDeliveryProofDate(proof) : getOrderLatestMovementText(order);
+
+  return `
+    <article class="account-history-item">
+      <div class="account-history-mark">OK</div>
+      <div class="account-history-copy">
+        <div class="account-history-kicker">Servicio #${escapeHtml(String(order.id || "--"))}</div>
+        <strong>${escapeHtml(getOrderPrimaryPackLabel(order))}</strong>
+        <span>${escapeHtml(serviceMoment || "Fecha no registrada")} | ${escapeHtml(order.zone || "Zona pendiente")}</span>
+        <small>${escapeHtml(packs.length ? packs.join(", ") : "Servicio general")} | ${escapeHtml(deliveredMoment)}</small>
+      </div>
+      <div class="account-history-actions">
+        ${renderStatusBadge(order.status)}
+        <button class="btn btn-small" type="button" data-factura="${order.id}">Factura</button>
+        <button class="btn btn-small btn-outline" type="button" data-detalle="${order.id}">Detalle</button>
+        <button class="btn btn-small btn-outline" type="button" data-repeat-service="${order.id}">Repetir</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderAccountServiceHistory(stats) {
+  const delivered = sortByNewestId(stats.delivered).slice(0, 8);
+
+  return `
+    <div class="account-history-head">
+      <div>
+        <div class="card-title">Historial de servicios</div>
+        <div class="card-secondary">Servicios ya completados, guardados aqui para consultar factura, detalle o repetir sin cargar tu inicio.</div>
+      </div>
+      <span class="estimate-badge">${stats.delivered.length} completados</span>
+    </div>
+    ${
+      delivered.length
+        ? `<div class="account-history-list">${delivered.map(renderAccountServiceHistoryItem).join("")}</div>`
+        : `
+          <div class="account-history-empty">
+            <strong>Aun no hay servicios completados.</strong>
+            <span>Cuando un pedido llegue a entregado, se archivara aqui automaticamente.</span>
+          </div>
+        `
+    }
+  `;
+}
+
+function repeatClientService(orderId) {
+  const order = getOrderById(orderId, "domicilio");
+  if (!order) {
+    showWarning("No encontre ese servicio para repetir.");
+    return;
+  }
+
+  showScreen("screenHome", { skipData: true, forceRender: true });
+
+  window.setTimeout(() => {
+    ensureClientOrderEnhancements();
+    const packs = getOrderPacks(order);
+    const extras = Array.isArray(order.extras) ? order.extras : [];
+
+    if (qs("#homeZone")) qs("#homeZone").value = order.zone || "Distrito Nacional";
+    if (qs("#homeAddress")) qs("#homeAddress").value = order.address || "";
+    const pickupType = qs("#homePickupType");
+    if (pickupType) {
+      const wantedType = order.serviceType || "Recogida a domicilio";
+      pickupType.value = Array.from(pickupType.options || []).some((option) => option.value === wantedType || option.textContent === wantedType)
+        ? wantedType
+        : "Recogida a domicilio";
+    }
+    if (qs("#homePricingMode")) qs("#homePricingMode").value = order.pricingMode || "por_libra";
+    if (qs("#homeEstimatedLbs")) qs("#homeEstimatedLbs").value = "";
+    if (qs("#homeDate")) qs("#homeDate").value = "";
+    if (qs("#homeTime")) qs("#homeTime").value = "";
+    if (qs("#homeNotes")) qs("#homeNotes").value = "";
+
+    qsa('[name="homePacks"]').forEach((input) => {
+      input.checked = packs.includes(input.value);
+    });
+
+    qsa("#quickOrderForm .chip input").forEach((input) => {
+      input.checked = extras.includes(input.value);
+    });
+
+    const garments = Array.isArray(order.selectedGarments) ? order.selectedGarments : [];
+    GARMENT_OPTIONS.forEach((item) => {
+      const selected = garments.find((garment) => String(garment.name || "").toLowerCase() === item.label.toLowerCase());
+      const toggle = qs(`[data-garment-toggle="${item.key}"]`);
+      const qty = qs(`[data-garment-qty="${item.key}"]`);
+      if (toggle) toggle.checked = Boolean(selected);
+      if (qty) qty.value = selected ? String(selected.qty || 1) : "0";
+    });
+
+    homeLocation = null;
+    syncPricingModeUI();
+    renderHomeLocationStatus();
+    updateOrderEstimatePreview();
+    qs("#quickOrderCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    qs("#homeDate")?.focus();
+    showSuccess("Servicio preparado para repetir. Solo elige fecha, hora y confirma tu GPS.");
+  }, 80);
+}
+
 function renderClientAccount() {
   const accountCard = qs("#screenAccount .card");
   const profileForm = qs("#profileForm");
@@ -4555,6 +4669,7 @@ function renderClientAccount() {
   const { my, activeCount, delivered, recentOrder, favoritePack, estimatedRevenue } = stats;
   let summaryCard = qs("#accountExecutiveCard");
   let billingCard = qs("#accountBillingCard");
+  let historyCard = qs("#accountServiceHistoryCard");
   const helpBlock = profileForm.nextElementSibling;
 
   if (!summaryCard) {
@@ -4572,6 +4687,19 @@ function renderClientAccount() {
       helpBlock.insertAdjacentElement("beforebegin", billingCard);
     } else {
       profileForm.insertAdjacentElement("afterend", billingCard);
+    }
+  }
+
+  if (!historyCard) {
+    historyCard = document.createElement("div");
+    historyCard.id = "accountServiceHistoryCard";
+    historyCard.className = "account-history-card";
+    if (billingCard?.parentElement) {
+      billingCard.insertAdjacentElement("afterend", historyCard);
+    } else if (helpBlock) {
+      helpBlock.insertAdjacentElement("beforebegin", historyCard);
+    } else {
+      profileForm.insertAdjacentElement("afterend", historyCard);
     }
   }
 
@@ -4616,6 +4744,14 @@ function renderClientAccount() {
       <span>${escapeHtml(recentOrder ? `Ultimo pedido: #${recentOrder.id} | ${fmtDate(recentOrder.date)}` : "Aun no tienes pedidos registrados.")}</span>
     </div>
   `;
+
+  historyCard.innerHTML = renderAccountServiceHistory(stats);
+  bindInvoiceAndDetailButtons(historyCard);
+  Array.from(historyCard.querySelectorAll("[data-repeat-service]")).forEach((btn) => {
+    if (btn.dataset.repeatBound === "1") return;
+    btn.dataset.repeatBound = "1";
+    btn.addEventListener("click", (event) => repeatClientService(event.currentTarget.dataset.repeatService));
+  });
 }
 
 function renderGestorHome() {

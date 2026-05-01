@@ -10214,6 +10214,132 @@ body.theme-light .screen-kicker{
   margin-top: 18px;
 }
 
+.account-history-card{
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(520px 220px at 0% 0%, rgba(130,205,176,.12), transparent 72%),
+    linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)),
+    rgba(255,255,255,.03);
+}
+
+body.theme-light .account-history-card{
+  background:
+    radial-gradient(520px 220px at 0% 0%, rgba(130,205,176,.14), transparent 72%),
+    linear-gradient(180deg, rgba(255,255,255,.98), rgba(244,252,252,.92));
+}
+
+.account-history-head{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.account-history-list{
+  margin-top: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.account-history-item{
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+}
+
+body.theme-light .account-history-item{
+  background: rgba(246,252,253,.92);
+}
+
+.account-history-mark{
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  border: 1px solid rgba(130,205,176,.30);
+  background: rgba(130,205,176,.16);
+  color: var(--text);
+  font-weight: 950;
+  letter-spacing: .05em;
+}
+
+.account-history-copy{
+  min-width: 0;
+}
+
+.account-history-kicker,
+.account-history-copy span,
+.account-history-copy small{
+  display: block;
+}
+
+.account-history-kicker{
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.account-history-copy strong{
+  display: block;
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 1.03rem;
+}
+
+.account-history-copy span,
+.account-history-copy small{
+  margin-top: 5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.account-history-actions{
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.account-history-empty{
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  background: rgba(255,255,255,.04);
+}
+
+body.theme-light .account-history-empty{
+  background: rgba(246,252,253,.86);
+}
+
+.account-history-empty strong,
+.account-history-empty span{
+  display: block;
+}
+
+.account-history-empty strong{
+  color: var(--text);
+}
+
+.account-history-empty span{
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
 .account-billing-box{
   display: flex;
   align-items: center;
@@ -10285,6 +10411,18 @@ body.theme-light .account-billing-meta span{
 }
 
 @media (max-width: 720px){
+  .account-history-head,
+  .account-history-item{
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .account-history-actions,
+  .account-history-actions .btn{
+    width: 100%;
+  }
+
   .account-billing-box{
     flex-direction: column;
     align-items: flex-start;
