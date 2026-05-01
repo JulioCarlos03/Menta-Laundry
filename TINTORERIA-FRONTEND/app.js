@@ -100,8 +100,10 @@ const TOKEN_STORAGE_KEY = "tintotoken";
 const THEME_STORAGE_KEY = "tintotheme";
 const RIDER_LOCATION_STORAGE_KEY = "tinto_rider_location";
 const GESTOR_ZONE_FILTER_STORAGE_KEY = "tinto_gestor_zone_filter";
+const INTERNAL_NOTIFICATIONS_STORAGE_PREFIX = "menta_internal_notifications_read";
 const pendingNotices = [];
 let noticeSequence = 0;
+let internalNotificationsOpen = false;
 
 function inferNoticeTone(message) {
   const text = String(message || "").trim().toLowerCase();
@@ -1201,13 +1203,19 @@ function toggleTheme() {
 function syncSessionChrome() {
   const logoutBtn = qs("#logoutBtn");
   const bottomNav = qs(".bottom-nav");
+  const notificationsBtn = qs("#internalNotificationsBtn");
+  const notificationsPanel = qs("#internalNotificationsPanel");
 
   if (currentUser) {
     show(logoutBtn);
     show(bottomNav);
+    show(notificationsBtn);
   } else {
     hide(logoutBtn);
     hide(bottomNav);
+    hide(notificationsBtn);
+    if (notificationsPanel) notificationsPanel.hidden = true;
+    internalNotificationsOpen = false;
   }
 }
 
@@ -1327,6 +1335,9 @@ function ensureTopbarEnhancements() {
     const right = topbar.querySelector(".topbar-right");
     if (right) topbar.insertBefore(center, right);
   }
+
+  ensureInternalNotificationControls();
+  ensureInternalNotificationsPanel();
 
   const darkToggle = qs("#darkModeToggle");
   if (darkToggle) {
@@ -1766,6 +1777,540 @@ function isRiderRouteStatus(status) {
 }
 
 /* ============================================================
+   INTERNAL NOTIFICATIONS
+============================================================ */
+function getInternalNotificationsStorageKey() {
+  if (!currentUser) return "";
+  const userKey = currentUser.id || currentUser.email || "anon";
+  return `${INTERNAL_NOTIFICATIONS_STORAGE_PREFIX}:${currentUser.role}:${userKey}`;
+}
+
+function readInternalNotificationIds() {
+  const key = getInternalNotificationsStorageKey();
+  if (!key) return new Set();
+
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch (_error) {
+    return new Set();
+  }
+}
+
+function writeInternalNotificationIds(ids) {
+  const key = getInternalNotificationsStorageKey();
+  if (!key) return;
+  const unique = Array.from(new Set(ids.map(String))).slice(-180);
+  localStorage.setItem(key, JSON.stringify(unique));
+}
+
+function markInternalNotificationsRead(ids = []) {
+  const readIds = readInternalNotificationIds();
+  ids.filter(Boolean).forEach((id) => readIds.add(String(id)));
+  writeInternalNotificationIds(Array.from(readIds));
+  renderInternalNotifications();
+}
+
+function getOrderNotificationStamp(order) {
+  const history = Array.isArray(order?.history) ? order.history : [];
+  const last = history[history.length - 1];
+  return String(last?.at || order?.updatedAt || order?.createdAt || order?.date || order?.id || "");
+}
+
+function getOrderNotificationId(order, topic) {
+  return [
+    topic || "order",
+    order?.channel || "domicilio",
+    order?.id || "sin-id",
+    normalizeStatusValue(order?.status),
+    getOrderNotificationStamp(order),
+  ].join(":");
+}
+
+function addInternalNotification(list, item) {
+  if (!item?.title || !item?.copy) return;
+  list.push({
+    id: String(item.id || `${item.title}:${item.copy}`).slice(0, 220),
+    tone: item.tone || "info",
+    title: item.title,
+    copy: item.copy,
+    meta: item.meta || "",
+    screen: item.screen || "screenHome",
+    actionLabel: item.actionLabel || "Abrir",
+    priority: Number(item.priority || 0),
+    createdAt: item.createdAt || new Date().toISOString(),
+  });
+}
+
+function getUnifiedOperationalOrders() {
+  const map = new Map();
+  [...ordersCache, ...localOrdersCache].forEach((order) => {
+    if (!order?.id) return;
+    const key = `${order.channel || "domicilio"}:${order.id}`;
+    map.set(key, order);
+  });
+  return Array.from(map.values());
+}
+
+function getInternalNotificationMeta(order) {
+  if (!order) return "";
+  return `Pedido #${order.id} | ${formatStatusLabel(order.status)}`;
+}
+
+function buildClientInternalNotifications(list) {
+  const myOrders = sortByNewestId(ordersCache.filter((order) => order.userId === currentUser.id));
+  const activeOrders = myOrders.filter((order) => !isClosedOrderStatus(order.status));
+  const delivered = myOrders.find((order) => isFinalDeliveryStatus(order.status));
+
+  if (!currentUser.emailVerified) {
+    addInternalNotification(list, {
+      id: `cliente:correo-pendiente:${currentUser.id}`,
+      tone: "warning",
+      title: "Correo pendiente",
+      copy: "Verifica tu correo para recibir avisos automaticos de ruta, local y entrega.",
+      meta: "Cuenta",
+      screen: "screenAccount",
+      actionLabel: "Ver cuenta",
+      priority: 95,
+    });
+  }
+
+  activeOrders.slice(0, 4).forEach((order) => {
+    const status = normalizeStatusValue(order.status);
+    const rank = getStatusRank(status);
+    if (status === "en camino a recoger") {
+      addInternalNotification(list, {
+        id: getOrderNotificationId(order, "cliente:ruta-recogida"),
+        tone: "warning",
+        title: "Repartidor en camino",
+        copy: "Ten listo el PIN de recogida y las prendas para entregarlas con seguridad.",
+        meta: getInternalNotificationMeta(order),
+        screen: "screenHome",
+        actionLabel: "Ver pedido",
+        priority: 90,
+        createdAt: getOrderNotificationStamp(order),
+      });
+    } else if (status === "en camino a entregar") {
+      addInternalNotification(list, {
+        id: getOrderNotificationId(order, "cliente:ruta-entrega"),
+        tone: "warning",
+        title: "Entrega en camino",
+        copy: "El pedido va hacia tu direccion. Ten el PIN de entrega disponible.",
+        meta: getInternalNotificationMeta(order),
+        screen: "screenHome",
+        actionLabel: "Ver pedido",
+        priority: 92,
+        createdAt: getOrderNotificationStamp(order),
+      });
+    } else if (rank >= getStatusRank("recibido en local") && rank < getStatusRank("listo para entrega")) {
+      addInternalNotification(list, {
+        id: getOrderNotificationId(order, "cliente:local"),
+        tone: "info",
+        title: "Pedido en el local",
+        copy: "Tus prendas ya estan dentro del flujo de recepcion y cuidado textil.",
+        meta: getInternalNotificationMeta(order),
+        screen: "screenActivity",
+        actionLabel: "Ver actividad",
+        priority: 70,
+        createdAt: getOrderNotificationStamp(order),
+      });
+    } else if (status === "listo para entrega") {
+      addInternalNotification(list, {
+        id: getOrderNotificationId(order, "cliente:listo"),
+        tone: "success",
+        title: "Pedido listo",
+        copy: "Tus prendas estan listas para coordinar la entrega final.",
+        meta: getInternalNotificationMeta(order),
+        screen: "screenActivity",
+        actionLabel: "Ver actividad",
+        priority: 88,
+        createdAt: getOrderNotificationStamp(order),
+      });
+    }
+  });
+
+  if (delivered) {
+    addInternalNotification(list, {
+      id: getOrderNotificationId(delivered, "cliente:entregado"),
+      tone: "success",
+      title: "Entrega cerrada",
+      copy: "Tu servicio fue marcado como entregado. Puedes revisar factura y detalle en tu actividad.",
+      meta: getInternalNotificationMeta(delivered),
+      screen: "screenActivity",
+      actionLabel: "Ver entrega",
+      priority: 55,
+      createdAt: getOrderNotificationStamp(delivered),
+    });
+  }
+}
+
+function buildGestorInternalNotifications(list) {
+  const nonLocal = ordersCache.filter((order) => order.channel !== "local");
+  const activeOrders = sortByNewestId(nonLocal.filter((order) => !isClosedOrderStatus(order.status)));
+  const pendingAssign = activeOrders.filter((order) => !order.repartidorId || normalizeStatusValue(order.status) === "pendiente");
+  const delayed = activeOrders.filter((order) => getOrderHighlightFlags(order).delayed);
+  const noGps = activeOrders.filter((order) => getOrderHighlightFlags(order).noGps);
+  const readyForDelivery = activeOrders.filter((order) => normalizeStatusValue(order.status) === "listo para entrega");
+
+  pendingAssign.slice(0, 5).forEach((order) => {
+    addInternalNotification(list, {
+      id: getOrderNotificationId(order, "gestor:asignacion"),
+      tone: "warning",
+      title: "Pedido sin asignar",
+      copy: `${order.userName || "Cliente"} espera repartidor en ${order.zone || "zona pendiente"}.`,
+      meta: getInternalNotificationMeta(order),
+      screen: "screenHome",
+      actionLabel: "Asignar",
+      priority: 100,
+      createdAt: getOrderNotificationStamp(order),
+    });
+  });
+
+  delayed.slice(0, 4).forEach((order) => {
+    addInternalNotification(list, {
+      id: getOrderNotificationId(order, "gestor:atraso"),
+      tone: "danger",
+      title: "Pedido atrasado",
+      copy: `${order.userName || "Cliente"} requiere seguimiento por horario o estado.`,
+      meta: `${order.zone || "--"} | ${fmtDate(order.date)} ${fmtTime(order.time)}`,
+      screen: "screenControl",
+      actionLabel: "Revisar",
+      priority: 96,
+      createdAt: getOrderNotificationStamp(order),
+    });
+  });
+
+  noGps.slice(0, 3).forEach((order) => {
+    addInternalNotification(list, {
+      id: getOrderNotificationId(order, "gestor:gps"),
+      tone: "info",
+      title: "Pedido sin GPS",
+      copy: "La ruta puede operar con direccion manual, pero conviene validar el punto real.",
+      meta: getInternalNotificationMeta(order),
+      screen: "screenControl",
+      actionLabel: "Ver control",
+      priority: 70,
+      createdAt: getOrderNotificationStamp(order),
+    });
+  });
+
+  if (readyForDelivery.length) {
+    addInternalNotification(list, {
+      id: `gestor:listos:${readyForDelivery.map((order) => order.id).join("-")}`,
+      tone: "success",
+      title: "Pedidos listos para entrega",
+      copy: `${readyForDelivery.length} pedidos pueden pasar a ruta final.`,
+      meta: "Despacho",
+      screen: "screenControl",
+      actionLabel: "Ver despacho",
+      priority: 85,
+    });
+  }
+}
+
+function buildRiderInternalNotifications(list) {
+  const assigned = sortByNewestId(ordersCache.filter((order) => Number(order.repartidorId) === Number(currentUser.id)));
+  const activeOrders = assigned.filter((order) => !isClosedOrderStatus(order.status));
+  const routePlan = buildRiderRoutePlan(activeOrders);
+  const nextStop = routePlan.active?.[0]?.order || routePlan.waiting?.[0]?.order || null;
+
+  if (nextStop) {
+    addInternalNotification(list, {
+      id: getOrderNotificationId(nextStop, "repartidor:siguiente"),
+      tone: "warning",
+      title: "Siguiente parada",
+      copy: `${nextStop.userName || "Cliente"} | ${nextStop.zone || "--"} | ${getRiderNextActionLabel(nextStop)}`,
+      meta: getInternalNotificationMeta(nextStop),
+      screen: "screenHome",
+      actionLabel: "Abrir ruta",
+      priority: 100,
+      createdAt: getOrderNotificationStamp(nextStop),
+    });
+  }
+
+  activeOrders.slice(0, 5).forEach((order) => {
+    const status = normalizeStatusValue(order.status);
+    if (status === "en camino a recoger") {
+      addInternalNotification(list, {
+        id: getOrderNotificationId(order, "repartidor:pin-recogida"),
+        tone: "warning",
+        title: "Recogida con PIN",
+        copy: "Antes de avanzar, pide el PIN de recogida al cliente.",
+        meta: getInternalNotificationMeta(order),
+        screen: "screenHome",
+        actionLabel: "Ver pedido",
+        priority: 94,
+        createdAt: getOrderNotificationStamp(order),
+      });
+    } else if (status === "en camino a entregar") {
+      addInternalNotification(list, {
+        id: getOrderNotificationId(order, "repartidor:pin-entrega"),
+        tone: "warning",
+        title: "Entrega con PIN",
+        copy: "Para cerrar el pedido necesitas el PIN de entrega del cliente.",
+        meta: getInternalNotificationMeta(order),
+        screen: "screenHome",
+        actionLabel: "Ver entrega",
+        priority: 95,
+        createdAt: getOrderNotificationStamp(order),
+      });
+    } else if (normalizeStatusValue(order.status) === "asignado") {
+      addInternalNotification(list, {
+        id: getOrderNotificationId(order, "repartidor:nuevo"),
+        tone: "info",
+        title: "Nuevo pedido asignado",
+        copy: `${order.userName || "Cliente"} ya esta en tu ruta activa.`,
+        meta: getInternalNotificationMeta(order),
+        screen: "screenHome",
+        actionLabel: "Ver ruta",
+        priority: 86,
+        createdAt: getOrderNotificationStamp(order),
+      });
+    }
+  });
+
+  activeOrders
+    .filter((order) => !getOrderLocation(order))
+    .slice(0, 3)
+    .forEach((order) => {
+      addInternalNotification(list, {
+        id: getOrderNotificationId(order, "repartidor:sin-gps"),
+        tone: "info",
+        title: "Parada sin GPS",
+        copy: "Usa la direccion escrita y confirma por llamada o WhatsApp si hay duda.",
+        meta: getInternalNotificationMeta(order),
+        screen: "screenHome",
+        actionLabel: "Ver ruta",
+        priority: 60,
+        createdAt: getOrderNotificationStamp(order),
+      });
+    });
+}
+
+function buildCashierInternalNotifications(list) {
+  const operationalOrders = sortByNewestId(getUnifiedOperationalOrders());
+  const incoming = operationalOrders.filter((order) => normalizeStatusValue(order.status) === "de camino al local");
+  const received = operationalOrders.filter((order) => normalizeStatusValue(order.status) === "recibido en local");
+  const treatment = operationalOrders.filter((order) => normalizeStatusValue(order.status) === "en tratamiento");
+  const ready = operationalOrders.filter((order) => normalizeStatusValue(order.status) === "listo para entrega");
+
+  incoming.slice(0, 4).forEach((order) => {
+    addInternalNotification(list, {
+      id: getOrderNotificationId(order, "caja:llegando"),
+      tone: "warning",
+      title: "Pedido camino al local",
+      copy: `${order.userName || "Cliente"} viene desde ruta para recepcion.`,
+      meta: getInternalNotificationMeta(order),
+      screen: "screenProduction",
+      actionLabel: "Ver produccion",
+      priority: 96,
+      createdAt: getOrderNotificationStamp(order),
+    });
+  });
+
+  received.slice(0, 4).forEach((order) => {
+    addInternalNotification(list, {
+      id: getOrderNotificationId(order, "caja:recibido"),
+      tone: "info",
+      title: "Recepcion pendiente",
+      copy: "Este pedido necesita pesaje, observaciones o paso a tratamiento.",
+      meta: getInternalNotificationMeta(order),
+      screen: "screenProduction",
+      actionLabel: "Ver mesa",
+      priority: 88,
+      createdAt: getOrderNotificationStamp(order),
+    });
+  });
+
+  if (treatment.length) {
+    addInternalNotification(list, {
+      id: `caja:tratamiento:${treatment.map((order) => order.id).join("-")}`,
+      tone: "info",
+      title: "Tratamiento activo",
+      copy: `${treatment.length} pedidos estan en lavado, planchado o cuidado textil.`,
+      meta: "Produccion",
+      screen: "screenProduction",
+      actionLabel: "Ver mesa",
+      priority: 70,
+    });
+  }
+
+  if (ready.length) {
+    addInternalNotification(list, {
+      id: `caja:listos:${ready.map((order) => order.id).join("-")}`,
+      tone: "success",
+      title: "Listos para salida",
+      copy: `${ready.length} pedidos pueden coordinar entrega final.`,
+      meta: "Produccion",
+      screen: "screenProduction",
+      actionLabel: "Ver listos",
+      priority: 92,
+    });
+  }
+}
+
+function buildInternalNotifications() {
+  if (!currentUser) return [];
+
+  const list = [];
+  if (currentUser.role === "cliente") buildClientInternalNotifications(list);
+  if (currentUser.role === "gestor") buildGestorInternalNotifications(list);
+  if (currentUser.role === "repartidor") buildRiderInternalNotifications(list);
+  if (currentUser.role === "cajera") buildCashierInternalNotifications(list);
+
+  return list
+    .sort((a, b) => {
+      const priorityDiff = Number(b.priority || 0) - Number(a.priority || 0);
+      if (priorityDiff) return priorityDiff;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    })
+    .slice(0, 12);
+}
+
+function ensureInternalNotificationControls() {
+  const right = qs(".topbar-right");
+  if (!right) return null;
+
+  let trigger = qs("#internalNotificationsBtn");
+  if (!trigger) {
+    trigger = document.createElement("button");
+    trigger.id = "internalNotificationsBtn";
+    trigger.className = "icon-btn internal-notification-trigger";
+    trigger.type = "button";
+    trigger.title = "Notificaciones internas";
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.innerHTML = `
+      <span class="icon-symbol">AV</span>
+      <span class="icon-label">Avisos</span>
+      <span id="internalNotificationCount" class="internal-notification-count" hidden>0</span>
+    `;
+    const darkToggle = qs("#darkModeToggle");
+    right.insertBefore(trigger, darkToggle || right.firstChild);
+  }
+
+  return trigger;
+}
+
+function ensureInternalNotificationsPanel() {
+  if (!document.body) return null;
+
+  let panel = qs("#internalNotificationsPanel");
+  if (panel) return panel;
+
+  panel = document.createElement("aside");
+  panel.id = "internalNotificationsPanel";
+  panel.className = "internal-notification-panel";
+  panel.hidden = true;
+  panel.setAttribute("aria-label", "Notificaciones internas");
+  document.body.appendChild(panel);
+  return panel;
+}
+
+function setInternalNotificationsOpen(open) {
+  internalNotificationsOpen = Boolean(open);
+  renderInternalNotifications();
+}
+
+function renderInternalNotifications() {
+  const trigger = ensureInternalNotificationControls();
+  const panel = ensureInternalNotificationsPanel();
+  if (!trigger || !panel) return;
+
+  if (!currentUser) {
+    hide(trigger);
+    panel.hidden = true;
+    internalNotificationsOpen = false;
+    return;
+  }
+
+  show(trigger);
+  const notifications = buildInternalNotifications();
+  const readIds = readInternalNotificationIds();
+  const unread = notifications.filter((item) => !readIds.has(item.id));
+  const countNode = qs("#internalNotificationCount");
+
+  if (countNode) {
+    countNode.textContent = unread.length > 9 ? "9+" : String(unread.length);
+    countNode.hidden = unread.length === 0;
+  }
+
+  trigger.setAttribute("aria-expanded", internalNotificationsOpen ? "true" : "false");
+  trigger.classList.toggle("has-unread", unread.length > 0);
+  panel.hidden = !internalNotificationsOpen;
+
+  const roleLabel = currentUser?.role ? formatRoleLabel(currentUser.role) : "Panel";
+  panel.innerHTML = `
+    <div class="internal-notification-card">
+      <div class="internal-notification-head">
+        <div>
+          <span>Centro interno</span>
+          <strong>Notificaciones</strong>
+          <small>${escapeHtml(roleLabel)} | ${unread.length} sin leer</small>
+        </div>
+        <button class="internal-notification-close" type="button" data-close-internal-notifications="1" aria-label="Cerrar">X</button>
+      </div>
+      <div class="internal-notification-toolbar">
+        <button class="btn btn-small btn-outline" type="button" data-mark-all-internal-notifications="1" ${notifications.length ? "" : "disabled"}>Marcar vistas</button>
+        <span>${notifications.length ? `${notifications.length} avisos activos` : "Sin avisos activos"}</span>
+      </div>
+      <div class="internal-notification-list">
+        ${
+          notifications.length
+            ? notifications.map((item) => {
+                const isUnread = !readIds.has(item.id);
+                return `
+                  <article class="internal-notification-item internal-notification-${escapeHtml(item.tone)} ${isUnread ? "is-unread" : ""}">
+                    <div class="internal-notification-dot" aria-hidden="true"></div>
+                    <div class="internal-notification-copy">
+                      <div class="internal-notification-title-row">
+                        <strong>${escapeHtml(item.title)}</strong>
+                        ${isUnread ? `<span>Nuevo</span>` : `<span>Visto</span>`}
+                      </div>
+                      <p>${escapeHtml(item.copy)}</p>
+                      ${item.meta ? `<small>${escapeHtml(item.meta)}</small>` : ""}
+                      <div class="internal-notification-actions">
+                        <button class="btn btn-small" type="button" data-open-notification-screen="${escapeHtml(item.screen)}" data-notification-id="${escapeHtml(item.id)}">${escapeHtml(item.actionLabel)}</button>
+                        <button class="btn btn-small btn-outline" type="button" data-read-internal-notification="${escapeHtml(item.id)}">Visto</button>
+                      </div>
+                    </div>
+                  </article>
+                `;
+              }).join("")
+            : `<div class="internal-notification-empty">La operacion esta tranquila. Cuando un pedido necesite accion, aparecera aqui.</div>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function handleInternalNotificationClick(event) {
+  const closeBtn = event.target.closest?.("[data-close-internal-notifications]");
+  if (closeBtn) {
+    setInternalNotificationsOpen(false);
+    return;
+  }
+
+  const markAllBtn = event.target.closest?.("[data-mark-all-internal-notifications]");
+  if (markAllBtn) {
+    markInternalNotificationsRead(buildInternalNotifications().map((item) => item.id));
+    return;
+  }
+
+  const readBtn = event.target.closest?.("[data-read-internal-notification]");
+  if (readBtn) {
+    markInternalNotificationsRead([readBtn.dataset.readInternalNotification]);
+    return;
+  }
+
+  const actionBtn = event.target.closest?.("[data-open-notification-screen]");
+  if (actionBtn) {
+    markInternalNotificationsRead([actionBtn.dataset.notificationId]);
+    setInternalNotificationsOpen(false);
+    showScreen(actionBtn.dataset.openNotificationScreen || "screenHome");
+  }
+}
+
+/* ============================================================
    CANCEL WINDOW (5 min)
 ============================================================ */
 function canCancel(order) {
@@ -2096,6 +2641,7 @@ function renderScreenForCurrentRole(screenId, { force = false } = {}) {
 
   renderer();
   screenRenderVersions.set(key, dashboardDataVersion);
+  renderInternalNotifications();
   return true;
 }
 
@@ -2171,6 +2717,7 @@ function applyDashboardPayload(payload = {}, { merge = false } = {}) {
   }
 
   markDashboardDataDirty();
+  renderInternalNotifications();
 }
 
 async function fetchDashboardPayload(screenId = getActiveScreenId()) {
@@ -10221,11 +10768,26 @@ function openDetail(ev) {
 function attachAppEvents() {
   qs("#logoutBtn")?.addEventListener("click", logout);
   qs("#darkModeToggle")?.addEventListener("click", toggleTheme);
+  qs("#internalNotificationsBtn")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setInternalNotificationsOpen(!internalNotificationsOpen);
+  });
   qs("#quickOrderForm")?.addEventListener("submit", onCreateOrder);
   qs("#cashierForm")?.addEventListener("submit", onCreateLocalOrder);
   qs("#invoiceCloseBtn")?.addEventListener("click", closeInvoice);
   qs("#invoicePrintBtn")?.addEventListener("click", printInvoice);
   qs("#invoiceModal .invoice-backdrop")?.addEventListener("click", closeInvoice);
+  document.addEventListener("click", (event) => {
+    const panel = qs("#internalNotificationsPanel");
+    const trigger = qs("#internalNotificationsBtn");
+    if (!internalNotificationsOpen) return;
+    if (panel?.contains(event.target) || trigger?.contains(event.target)) return;
+    setInternalNotificationsOpen(false);
+  });
+  qs("#internalNotificationsPanel")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    handleInternalNotificationClick(event);
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeInvoice();
@@ -10233,6 +10795,7 @@ function attachAppEvents() {
       closeConfirmDialog(false);
       closeDeliveryProofDialog(null);
       closeAuthActionPanel();
+      setInternalNotificationsOpen(false);
     }
   });
   qs("#profileForm")?.addEventListener("submit", (e) => {
