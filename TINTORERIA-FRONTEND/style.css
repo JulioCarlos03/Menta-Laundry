@@ -6038,6 +6038,245 @@ body.theme-light .home-concierge-card{
   background: rgba(246,252,253,.9);
 }
 
+.client-communication-card{
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(130,205,176,.18);
+  background:
+    radial-gradient(460px 220px at 0% 0%, rgba(130,205,176,.14), transparent 70%),
+    radial-gradient(380px 200px at 100% 0%, rgba(100,206,221,.11), transparent 72%),
+    var(--card);
+}
+
+body.theme-light .client-communication-card{
+  background:
+    radial-gradient(460px 220px at 0% 0%, rgba(130,205,176,.12), transparent 70%),
+    radial-gradient(380px 200px at 100% 0%, rgba(100,206,221,.10), transparent 72%),
+    rgba(255,255,255,.96);
+}
+
+.client-communication-card::before{
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: linear-gradient(90deg, #82cdb0, #64cedd, #d6b681);
+}
+
+.communication-shell{
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.communication-head{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.communication-title{
+  margin-top: 8px;
+  color: var(--text);
+  font-size: clamp(1.25rem, 2vw, 1.65rem);
+  font-weight: 900;
+  line-height: 1.12;
+}
+
+.communication-copy{
+  max-width: 760px;
+  margin-top: 10px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.communication-status{
+  min-width: 210px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 14px 15px;
+  border-radius: 22px;
+  border: 1px solid rgba(130,205,176,.22);
+  background: rgba(255,255,255,.06);
+}
+
+body.theme-light .communication-status{
+  background: rgba(255,255,255,.82);
+}
+
+.communication-status span{
+  grid-row: span 2;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  border: 1px solid rgba(130,205,176,.26);
+  background: rgba(130,205,176,.16);
+  color: #eafff4;
+  font-weight: 900;
+}
+
+body.theme-light .communication-status span{
+  color: #1b7158;
+}
+
+.communication-status.is-pending span{
+  border-color: rgba(214,182,129,.30);
+  background: rgba(214,182,129,.14);
+  color: #ffe7bd;
+}
+
+body.theme-light .communication-status.is-pending span{
+  color: #8a6330;
+}
+
+.communication-status strong{
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.communication-status small{
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.communication-moments{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.communication-moment{
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  min-height: 118px;
+  padding: 15px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+}
+
+body.theme-light .communication-moment{
+  background: rgba(246,252,253,.86);
+}
+
+.communication-moment::after{
+  content: "";
+  position: absolute;
+  inset: auto 16px 0 16px;
+  height: 3px;
+  border-radius: 999px 999px 0 0;
+  background: rgba(130,205,176,.22);
+}
+
+.communication-moment.is-active{
+  border-color: rgba(100,206,221,.30);
+  background: linear-gradient(180deg, rgba(100,206,221,.12), rgba(255,255,255,.04));
+}
+
+body.theme-light .communication-moment.is-active{
+  background: linear-gradient(180deg, rgba(221,247,250,.94), rgba(255,255,255,.88));
+}
+
+.communication-moment.is-done{
+  border-color: rgba(130,205,176,.28);
+  background: linear-gradient(180deg, rgba(130,205,176,.13), rgba(255,255,255,.04));
+}
+
+body.theme-light .communication-moment.is-done{
+  background: linear-gradient(180deg, rgba(235,250,244,.96), rgba(255,255,255,.88));
+}
+
+.communication-moment.is-active::after{
+  background: linear-gradient(90deg, #64cedd, #82cdb0);
+}
+
+.communication-moment.is-done::after{
+  background: linear-gradient(90deg, #82cdb0, #d6b681);
+}
+
+.communication-moment b{
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  border: 1px solid rgba(130,205,176,.20);
+  background: rgba(255,255,255,.06);
+  color: var(--text);
+  font-size: .78rem;
+}
+
+body.theme-light .communication-moment b{
+  background: rgba(255,255,255,.84);
+}
+
+.communication-moment strong{
+  display: block;
+  color: var(--text);
+  line-height: 1.28;
+}
+
+.communication-moment span{
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: .86rem;
+}
+
+.communication-grid{
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(220px, .65fr);
+  gap: 12px;
+}
+
+.communication-info{
+  padding: 14px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.035);
+}
+
+body.theme-light .communication-info{
+  background: rgba(255,255,255,.78);
+}
+
+.communication-info span{
+  display: block;
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.communication-info strong{
+  display: block;
+  margin-top: 7px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.communication-actions{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.communication-actions .btn{
+  text-decoration: none;
+}
+
 .client-activity-focus-card,
 .client-activity-feed-card{
   margin-top: 16px;
@@ -6342,7 +6581,9 @@ body.theme-light .timeline-summary-block{
   .activity-focus-grid,
   .home-lounge-strip,
   .home-focus-grid,
-  .home-concierge-grid{
+  .home-concierge-grid,
+  .communication-moments,
+  .communication-grid{
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -6351,7 +6592,8 @@ body.theme-light .timeline-summary-block{
   .activity-hero-row,
   .activity-focus-top,
   .activity-feed-head,
-  .timeline-serial-row{
+  .timeline-serial-row,
+  .communication-head{
     flex-direction: column;
     align-items: flex-start;
   }
@@ -6366,7 +6608,9 @@ body.theme-light .timeline-summary-block{
   .activity-focus-grid,
   .home-lounge-strip,
   .home-focus-grid,
-  .home-concierge-grid{
+  .home-concierge-grid,
+  .communication-moments,
+  .communication-grid{
     grid-template-columns: 1fr;
   }
 
@@ -6386,7 +6630,9 @@ body.theme-light .timeline-summary-block{
 
   .home-focus-status,
   .home-focus-status .status-pill,
-  .home-focus-card .home-focus-actions .btn{
+  .home-focus-card .home-focus-actions .btn,
+  .communication-status,
+  .communication-actions .btn{
     width: 100%;
   }
 

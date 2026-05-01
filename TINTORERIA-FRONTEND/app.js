@@ -2337,6 +2337,7 @@ function updateUIByRole() {
   const nextOrderCard = qs("#nextOrderCard");
   const quickOrderCard = qs("#quickOrderCard");
   const serviceCard = qs("#serviceExperienceCard");
+  const communicationCard = qs("#clientCommunicationCard");
 
   // panels
   const gestorPanel = qs("#gestorHomePanel");
@@ -2347,7 +2348,7 @@ function updateUIByRole() {
   show(navActivity); show(navPremium);
   hide(navDelivered); hide(navProduction); hide(navControl); hide(navRiders); hide(navLocal); hide(navHistory);
 
-  show(nextOrderCard); show(quickOrderCard); show(serviceCard);
+  show(nextOrderCard); show(quickOrderCard); show(serviceCard); show(communicationCard);
   hide(gestorPanel); hide(repPanel); hide(cashierPanel);
   syncSessionChrome();
 
@@ -2367,7 +2368,7 @@ function updateUIByRole() {
   if (currentUser.role === "gestor") {
     hide(navActivity); hide(navPremium);
     hide(navDelivered); hide(navProduction); show(navControl); show(navRiders); show(navLocal); show(navHistory);
-    hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
+    hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard); hide(communicationCard);
     show(gestorPanel);
     qs("#welcomeSubtitle").textContent = "Administra pedidos, asignaciones, local y repartidores.";
     showScreen(preferredScreen, { skipData: true, skipRender: true });
@@ -2378,7 +2379,7 @@ function updateUIByRole() {
   if (currentUser.role === "repartidor") {
     hide(navActivity); hide(navPremium);
     show(navDelivered); hide(navProduction); hide(navControl); hide(navRiders); hide(navLocal); hide(navHistory);
-    hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
+    hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard); hide(communicationCard);
     show(repPanel);
     qs("#welcomeSubtitle").textContent = "Gestiona tus pedidos asignados y actualiza estados.";
     showScreen(preferredScreen, { skipData: true, skipRender: true });
@@ -2389,7 +2390,7 @@ function updateUIByRole() {
   if (currentUser.role === "cajera") {
     hide(navActivity); hide(navPremium);
     hide(navDelivered); show(navProduction); hide(navControl); hide(navRiders); hide(navLocal); show(navHistory);
-    hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard);
+    hide(nextOrderCard); hide(quickOrderCard); hide(serviceCard); hide(communicationCard);
     show(cashierPanel);
     qs("#welcomeSubtitle").textContent = "Caja: registra pedidos del local con libras.";
     showScreen(preferredScreen, { skipData: true, skipRender: true });
@@ -3050,6 +3051,148 @@ function getOrderPrimaryPackLabel(order) {
   return packs.join(", ") || order?.pack || "Servicio general";
 }
 
+function getClientCommunicationSummary(order) {
+  if (!order) {
+    return {
+      eyebrow: "Centro de comunicacion",
+      title: "Avisos listos para tu proximo servicio",
+      copy: "Cuando crees un pedido, aqui veras que correos debe recibir el cliente y el canal directo de soporte.",
+      statusLabel: currentUser?.emailVerified ? "Correo activo" : "Correo pendiente",
+    };
+  }
+
+  const status = normalizeStatusValue(order.status);
+  if (isCancelledStatus(status)) {
+    return {
+      eyebrow: `Pedido #${order.id}`,
+      title: "Servicio cancelado",
+      copy: "El historial queda guardado y soporte puede ayudarte a reprogramar si necesitas una nueva recogida.",
+      statusLabel: "Sin avisos activos",
+    };
+  }
+
+  if (getStatusRank(status) >= getStatusRank("entregado al cliente")) {
+    return {
+      eyebrow: `Pedido #${order.id}`,
+      title: "Entrega confirmada por correo",
+      copy: "El cliente debe tener el cierre del servicio en su correo y el detalle disponible en su cuenta.",
+      statusLabel: "Servicio cerrado",
+    };
+  }
+
+  if (getStatusRank(status) >= getStatusRank("recibido en local")) {
+    return {
+      eyebrow: `Pedido #${order.id}`,
+      title: "Tu pedido ya esta en el local",
+      copy: "El aviso de recepcion en local mantiene al cliente tranquilo mientras el equipo prepara el tratamiento.",
+      statusLabel: "Avisos activos",
+    };
+  }
+
+  if (getStatusRank(status) >= getStatusRank("en camino a recoger")) {
+    return {
+      eyebrow: `Pedido #${order.id}`,
+      title: "Ruta en camino a tu direccion",
+      copy: "El cliente recibe el primer aviso importante: el repartidor ya va hacia el punto de recogida.",
+      statusLabel: "Ruta notificada",
+    };
+  }
+
+  return {
+    eyebrow: `Pedido #${order.id}`,
+    title: "Avisos preparados",
+    copy: "El pedido esta listo para activar correos automaticos cuando avance la ruta o entre al local.",
+    statusLabel: "En espera",
+  };
+}
+
+function getClientNotificationMoments(order) {
+  const hasTrackableOrder = Boolean(order) && !isCancelledStatus(order.status);
+  const statusRank = hasTrackableOrder ? getStatusRank(order.status) : -1;
+  const moments = [
+    {
+      status: "en camino a recoger",
+      label: "Ruta al cliente",
+      copy: "Correo cuando el repartidor salga a recoger.",
+    },
+    {
+      status: "recibido en local",
+      label: "En local",
+      copy: "Correo cuando las prendas lleguen al local.",
+    },
+    {
+      status: "entregado al cliente",
+      label: "Entregado",
+      copy: "Correo final cuando el servicio cierre.",
+    },
+  ];
+
+  let activeAssigned = false;
+  return moments.map((moment) => {
+    const done = statusRank >= getStatusRank(moment.status);
+    const active = hasTrackableOrder && !done && !activeAssigned;
+    if (active) activeAssigned = true;
+    return { ...moment, done, active };
+  });
+}
+
+function renderClientCommunicationPanel(stats) {
+  const activeOrder = stats.active || stats.recentOrder || null;
+  const summary = getClientCommunicationSummary(activeOrder);
+  const emailReady = Boolean(currentUser?.emailVerified);
+  const supportSubject = activeOrder ? `pedido #${activeOrder.id}` : "mi cuenta";
+  const supportMessage = encodeURIComponent(`Hola, necesito ayuda con ${supportSubject} de ${BUSINESS_PROFILE.name}.`);
+  const latestMovement = activeOrder ? getOrderLatestMovementText(activeOrder) : "Sin movimientos todavia. Tu primer pedido activara esta bitacora.";
+  const moments = getClientNotificationMoments(activeOrder);
+
+  return `
+    <div class="communication-shell">
+      <div class="communication-head">
+        <div>
+          <div class="estimate-kicker">${escapeHtml(summary.eyebrow)}</div>
+          <div class="communication-title">${escapeHtml(summary.title)}</div>
+          <div class="communication-copy">${escapeHtml(summary.copy)}</div>
+        </div>
+        <div class="communication-status ${emailReady ? "is-ready" : "is-pending"}">
+          <span>${emailReady ? "OK" : "!"}</span>
+          <strong>${emailReady ? "Correo activo" : "Correo pendiente"}</strong>
+          <small>${emailReady ? "Listo para avisos automaticos" : "Verifica tu correo para recibir avisos"}</small>
+        </div>
+      </div>
+
+      <div class="communication-moments" aria-label="Momentos de correo automatico">
+        ${moments.map((moment, index) => `
+          <div class="communication-moment ${moment.done ? "is-done" : ""} ${moment.active ? "is-active" : ""}">
+            <b>${String(index + 1).padStart(2, "0")}</b>
+            <div>
+              <strong>${escapeHtml(moment.label)}</strong>
+              <span>${escapeHtml(moment.done ? "Aviso completado" : moment.copy)}</span>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+
+      <div class="communication-grid">
+        <div class="communication-info">
+          <span>Ultimo movimiento</span>
+          <strong>${escapeHtml(latestMovement)}</strong>
+        </div>
+        <div class="communication-info">
+          <span>Estado de avisos</span>
+          <strong>${escapeHtml(summary.statusLabel)}</strong>
+        </div>
+      </div>
+
+      <div class="communication-actions">
+        <a class="btn btn-small" href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${supportMessage}" target="_blank" rel="noreferrer">WhatsApp</a>
+        <a class="btn btn-small btn-outline" href="tel:+${BUSINESS_PHONE_DIGITS}">Llamar</a>
+        <a class="btn btn-small btn-outline" href="mailto:${BUSINESS_PROFILE.email}">Correo</a>
+        <button class="btn btn-small btn-outline" type="button" data-go-communication-activity="1">Ver actividad</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderClientHome() {
   const stats = buildClientOrderStats(ordersCache.filter((o) => o.userId === currentUser.id));
   const { my, active, activeCount, delivered, cancelled, recentOrder, recentDelivered, favoritePack, gpsReadyCount } = stats;
@@ -3058,6 +3201,7 @@ function renderClientHome() {
   const quickOrderCard = qs("#quickOrderCard");
   const homeLayout = qs(".home-client-layout");
   let executiveCard = qs("#clientExecutiveCard");
+  let communicationCard = qs("#clientCommunicationCard");
   const careTier = getClientCareTier(my.length);
   const greetingName = String(currentUser?.name || "Cliente").trim().split(/\s+/)[0] || "Cliente";
   const focusZone = active?.zone || recentOrder?.zone || "Distrito Nacional";
@@ -3075,6 +3219,23 @@ function renderClientHome() {
     } else if (quickOrderCard) {
       quickOrderCard.insertAdjacentElement("beforebegin", executiveCard);
     }
+  }
+
+  if (!communicationCard && (homeLayout || quickOrderCard || executiveCard)) {
+    communicationCard = document.createElement("div");
+    communicationCard.id = "clientCommunicationCard";
+    communicationCard.className = "card card-spaced client-communication-card";
+  }
+
+  if (communicationCard) {
+    if (executiveCard?.parentElement) {
+      executiveCard.insertAdjacentElement("afterend", communicationCard);
+    } else if (homeLayout) {
+      homeLayout.insertAdjacentElement("beforebegin", communicationCard);
+    } else if (quickOrderCard) {
+      quickOrderCard.insertAdjacentElement("beforebegin", communicationCard);
+    }
+    communicationCard.innerHTML = renderClientCommunicationPanel(stats);
   }
 
   if (nextOrderCard) {
@@ -3377,6 +3538,11 @@ function renderClientHome() {
   bindInvoiceAndDetailButtons(nextOrderCard || undefined);
   qs("#homeGoActivityBtn")?.addEventListener("click", () => showScreen("screenActivity"));
   qs("#homeGoAccountBtn")?.addEventListener("click", () => showScreen("screenAccount"));
+  qsa("[data-go-communication-activity]").forEach((btn) => {
+    if (btn.dataset.navBound === "1") return;
+    btn.dataset.navBound = "1";
+    btn.addEventListener("click", () => showScreen("screenActivity"));
+  });
   qs("#homeCreateServiceBtn")?.addEventListener("click", () => {
     quickOrderCard?.scrollIntoView({ behavior: "smooth", block: "start" });
     qs("#homeZone")?.focus();
