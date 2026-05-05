@@ -140,6 +140,39 @@ const paymentSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    clientReportedAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    clientReportedMethod: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    clientReportedReference: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    clientReportedNote: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    clientReportedAt: {
+      type: Date,
+      default: null,
+    },
+    clientReportedByUserId: {
+      type: Number,
+      default: null,
+    },
+    clientReportedByName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
   },
   { _id: false }
 );

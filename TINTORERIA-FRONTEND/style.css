@@ -8755,7 +8755,7 @@ body.theme-light .cashdesk-panel{
 .cashdesk-metrics{
   margin-top: 14px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 10px;
 }
 
@@ -9066,9 +9066,63 @@ body.theme-light .payment-control-card{
   background: rgba(217,181,111,.15);
 }
 
+.payment-pill-por_verificar{
+  border-color: rgba(217,181,111,.40);
+  background: linear-gradient(135deg, rgba(217,181,111,.18), rgba(88,215,198,.10));
+}
+
 .payment-pill-pendiente{
   border-color: rgba(204,96,74,.28);
   background: rgba(204,96,74,.11);
+}
+
+.payment-report-note{
+  margin-top: 11px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px;
+  border-radius: 16px;
+  border: 1px solid rgba(217,181,111,.24);
+  background: rgba(217,181,111,.08);
+}
+
+.payment-report-note span,
+.payment-report-note strong,
+.payment-report-note small{
+  display: block;
+}
+
+.payment-report-note span{
+  color: var(--muted);
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.payment-report-note strong{
+  margin-top: 4px;
+  color: var(--text);
+}
+
+.payment-report-note small{
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.payment-report-note em{
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-style: normal;
+  font-size: .72rem;
+  font-weight: 900;
+  background: rgba(255,255,255,.06);
 }
 
 .payment-control-grid{
@@ -9125,6 +9179,165 @@ body.theme-light .payment-control-actions input{
   border-radius: 999px;
   border: 1px solid var(--line);
   color: var(--muted);
+}
+
+.client-payment-card{
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(88,215,198,.20);
+  background:
+    radial-gradient(360px 180px at 0% 0%, rgba(88,215,198,.12), transparent 72%),
+    linear-gradient(135deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+}
+
+body.theme-light .client-payment-card{
+  background:
+    radial-gradient(360px 180px at 0% 0%, rgba(88,215,198,.16), transparent 72%),
+    linear-gradient(135deg, rgba(255,255,255,.98), rgba(245,252,252,.92));
+}
+
+.client-payment-card-paid{
+  border-color: rgba(88,215,198,.30);
+}
+
+.client-payment-card-compact{
+  margin-top: 12px;
+}
+
+.client-payment-head{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.client-payment-head span,
+.client-payment-head strong,
+.client-payment-head small{
+  display: block;
+}
+
+.client-payment-head span,
+.client-payment-current span,
+.client-payment-comment span{
+  color: var(--muted);
+  font-size: .70rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.client-payment-head strong{
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 1.02rem;
+}
+
+.client-payment-head small{
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.client-payment-current{
+  margin-top: 11px;
+  padding: 11px;
+  border-radius: 16px;
+  border: 1px solid rgba(217,181,111,.22);
+  background: rgba(217,181,111,.08);
+}
+
+.client-payment-current strong,
+.client-payment-current small{
+  display: block;
+}
+
+.client-payment-current strong{
+  margin-top: 5px;
+  color: var(--text);
+}
+
+.client-payment-current small{
+  margin-top: 5px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.client-payment-form{
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.client-payment-grid{
+  display: grid;
+  grid-template-columns: .9fr .9fr 1.2fr;
+  gap: 9px;
+}
+
+.client-payment-grid label,
+.client-payment-comment{
+  display: grid;
+  gap: 6px;
+}
+
+.client-payment-grid input,
+.client-payment-grid select,
+.client-payment-comment textarea{
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255,255,255,.05);
+  color: var(--text);
+  padding: 10px 11px;
+  font: inherit;
+}
+
+body.theme-light .client-payment-grid input,
+body.theme-light .client-payment-grid select,
+body.theme-light .client-payment-comment textarea{
+  background: rgba(255,255,255,.94);
+}
+
+.client-payment-comment textarea{
+  min-height: 76px;
+  resize: vertical;
+}
+
+.client-payment-actions{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.client-payment-actions small{
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.client-payment-wait{
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  background: rgba(255,255,255,.04);
+}
+
+.client-payment-wait strong,
+.client-payment-wait span{
+  display: block;
+}
+
+.client-payment-wait strong{
+  color: var(--text);
+}
+
+.client-payment-wait span{
+  margin-top: 5px;
+  line-height: 1.45;
 }
 
 .local-order-actions{
@@ -10630,9 +10843,39 @@ body.theme-light .account-billing-meta span{
   background: rgba(246,252,253,.9);
 }
 
+.account-payment-center{
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(420px 190px at 100% 0%, rgba(217,181,111,.12), transparent 70%),
+    rgba(255,255,255,.035);
+}
+
+body.theme-light .account-payment-center{
+  background:
+    radial-gradient(420px 190px at 100% 0%, rgba(217,181,111,.16), transparent 70%),
+    rgba(255,255,255,.9);
+}
+
+.account-payment-head{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.account-payment-list{
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+}
+
 @media (max-width: 720px){
   .account-history-head,
-  .account-history-item{
+  .account-history-item,
+  .account-payment-head{
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: flex-start;
@@ -10650,6 +10893,18 @@ body.theme-light .account-billing-meta span{
 
   .account-billing-value{
     text-align: left;
+  }
+
+  .client-payment-grid,
+  .client-payment-actions,
+  .payment-report-note{
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .client-payment-actions .btn{
+    width: 100%;
   }
 
   .app-logo{

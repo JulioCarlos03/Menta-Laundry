@@ -4013,6 +4013,7 @@ function renderClientHome() {
               <small>${escapeHtml(locationLabel)}</small>
             </div>
           </div>
+          ${renderClientPaymentReport(active, { compact: true })}
           <div class="home-focus-note">
             <strong>${escapeHtml(active.address || "Direccion pendiente")}</strong>
             <span>${escapeHtml(active.zone || focusZone)} | ${escapeHtml(activeLocation ? "Seguimiento reforzado con GPS." : "Seguimiento apoyado por la direccion escrita.")}</span>
@@ -4216,6 +4217,7 @@ function renderClientHome() {
   }
 
   bindInvoiceAndDetailButtons(nextOrderCard || undefined);
+  bindClientPaymentReportEvents(nextOrderCard || undefined);
   qs("#homeGoActivityBtn")?.addEventListener("click", () => showScreen("screenActivity"));
   qs("#homeGoAccountBtn")?.addEventListener("click", () => showScreen("screenAccount"));
   qsa("[data-go-communication-activity]").forEach((btn) => {
@@ -4609,6 +4611,38 @@ function renderAccountServiceHistory(stats) {
   `;
 }
 
+function renderAccountPaymentCenter(stats) {
+  const payableOrders = sortByNewestId(
+    (stats.my || []).filter((order) => {
+      const payment = getOrderPaymentSummary(order);
+      const report = getClientPaymentReport(payment.payment);
+      return normalizeStatusValue(order.status) !== "cancelado" && payment.status !== "pagado" && (payment.total > 0 || report);
+    })
+  ).slice(0, 4);
+
+  return `
+    <div class="account-payment-center">
+      <div class="account-payment-head">
+        <div>
+          <div class="card-title">Pagos pendientes</div>
+          <div class="card-secondary">Reporta transferencias o comprobantes para que caja los valide sin marcarte pagado automaticamente.</div>
+        </div>
+        <span class="estimate-badge">${payableOrders.length} abiertos</span>
+      </div>
+      ${
+        payableOrders.length
+          ? `<div class="account-payment-list">${payableOrders.map((order) => renderClientPaymentReport(order, { compact: true })).join("")}</div>`
+          : `
+            <div class="account-history-empty">
+              <strong>No tienes pagos pendientes por reportar.</strong>
+              <span>Cuando un pedido tenga balance disponible, aparecera aqui para enviar referencia a caja.</span>
+            </div>
+          `
+      }
+    </div>
+  `;
+}
+
 function repeatClientService(orderId) {
   const order = getOrderById(orderId, "domicilio");
   if (!order) {
@@ -4748,9 +4782,11 @@ function renderClientAccount() {
       <span>${my.length} facturas registradas</span>
       <span>${escapeHtml(recentOrder ? `Ultimo pedido: #${recentOrder.id} | ${fmtDate(recentOrder.date)}` : "Aun no tienes pedidos registrados.")}</span>
     </div>
+    ${renderAccountPaymentCenter(stats)}
   `;
 
   historyCard.innerHTML = renderAccountServiceHistory(stats);
+  bindClientPaymentReportEvents(billingCard);
   bindInvoiceAndDetailButtons(historyCard);
   Array.from(historyCard.querySelectorAll("[data-repeat-service]")).forEach((btn) => {
     if (btn.dataset.repeatBound === "1") return;
@@ -5339,9 +5375,11 @@ const PRICING_MODE_LABELS = {
 const PAYMENT_METHOD_LABELS = {
   efectivo: "Efectivo",
   transferencia: "Transferencia",
+  deposito: "Deposito",
   tarjeta: "Tarjeta",
   mixto: "Mixto",
   credito: "Credito",
+  otro: "Otro",
 };
 
 const BUSINESS_PROFILE = {
@@ -7796,11 +7834,30 @@ function getPaymentStatusLabel(status) {
   const value = String(status || "pendiente").toLowerCase();
   if (value === "pagado") return "Pagado";
   if (value === "parcial") return "Parcial";
+  if (value === "por_verificar" || value === "por verificar") return "Por verificar";
   return "Pendiente";
 }
 
 function getPaymentMethodLabel(method) {
   return PAYMENT_METHOD_LABELS[String(method || "").toLowerCase()] || "Sin metodo";
+}
+
+function getClientPaymentReport(payment) {
+  const source = payment && typeof payment === "object" ? payment : {};
+  const amount = Number(source.clientReportedAmount || 0);
+  const reference = String(source.clientReportedReference || "").trim();
+  const method = String(source.clientReportedMethod || "").trim();
+  const reportedAt = source.clientReportedAt || "";
+
+  if (!amount && !reference && !reportedAt) return null;
+
+  return {
+    amount,
+    method,
+    reference,
+    note: String(source.clientReportedNote || "").trim(),
+    reportedAt,
+  };
 }
 
 function getOrderPaymentSummary(order) {
@@ -7824,18 +7881,35 @@ function getOrderPaymentSummary(order) {
 
 function renderPaymentBadge(order) {
   const summary = getOrderPaymentSummary(order);
-  return `<span class="payment-pill payment-pill-${escapeHtml(summary.status)}">${escapeHtml(getPaymentStatusLabel(summary.status))}</span>`;
+  const statusClass = String(summary.status || "pendiente").replace(/\s+/g, "_");
+  return `<span class="payment-pill payment-pill-${escapeHtml(statusClass)}">${escapeHtml(getPaymentStatusLabel(summary.status))}</span>`;
 }
 
 function renderPaymentControl(order) {
   const summary = getOrderPaymentSummary(order);
-  const defaultAmount = summary.amountPaid > 0
-    ? summary.amountPaid
-    : summary.total > 0
-      ? summary.total
-      : 0;
+  const report = getClientPaymentReport(summary.payment);
+  const defaultAmount = report?.amount > 0
+    ? Math.min(summary.total || (summary.amountPaid + report.amount), summary.amountPaid + report.amount)
+    : summary.amountPaid > 0
+      ? summary.amountPaid
+      : summary.total > 0
+        ? summary.total
+        : 0;
   const method = summary.payment.method || "efectivo";
   const canEditPayment = ["cajera", "gestor"].includes(currentUser?.role);
+  const reportMarkup = report
+    ? `
+      <div class="payment-report-note">
+        <div>
+          <span>Reportado por cliente</span>
+          <strong>${money(report.amount || defaultAmount)} | ${escapeHtml(getPaymentMethodLabel(report.method))}</strong>
+          <small>${escapeHtml(report.reference ? `Referencia: ${report.reference}` : "Sin referencia visible")}</small>
+          ${report.note ? `<small>${escapeHtml(report.note)}</small>` : ""}
+        </div>
+        <em>${report.reportedAt ? `${escapeHtml(fmtDate(report.reportedAt))} ${escapeHtml(fmtTime(report.reportedAt))}` : "Pendiente de caja"}</em>
+      </div>
+    `
+    : "";
 
   return `
     <div class="payment-control-card">
@@ -7847,6 +7921,7 @@ function renderPaymentControl(order) {
         </div>
         ${renderPaymentBadge(order)}
       </div>
+      ${canEditPayment ? reportMarkup : ""}
       ${
         canEditPayment
           ? `
@@ -7882,6 +7957,113 @@ function renderPaymentControl(order) {
   `;
 }
 
+function canClientReportPayment(order) {
+  if (currentUser?.role !== "cliente") return false;
+  if (!order || Number(order.userId) !== Number(currentUser.id)) return false;
+  const status = normalizeStatusValue(order.status);
+  const payment = getOrderPaymentSummary(order);
+  return status !== "cancelado" && payment.status !== "pagado";
+}
+
+function renderClientPaymentReport(order, options = {}) {
+  if (!order || currentUser?.role !== "cliente") return "";
+
+  const summary = getOrderPaymentSummary(order);
+  const report = getClientPaymentReport(summary.payment);
+  const compactClass = options.compact ? " client-payment-card-compact" : "";
+  const canReport = canClientReportPayment(order);
+  const hasTotalReady = summary.total > 0;
+  const defaultAmount = report?.amount > 0
+    ? report.amount
+    : summary.balance > 0
+      ? summary.balance
+      : summary.total;
+  const method = report?.method || summary.payment.method || "transferencia";
+  const reference = report?.reference || "";
+  const note = report?.note || "";
+  const reportDate = report?.reportedAt ? `${fmtDate(report.reportedAt)} ${fmtTime(report.reportedAt)}` : "";
+
+  if (summary.status === "pagado") {
+    return `
+      <section class="client-payment-card${compactClass} client-payment-card-paid">
+        <div class="client-payment-head">
+          <div>
+            <span>Pago</span>
+            <strong>Pago confirmado</strong>
+            <small>${summary.paidAt ? `${escapeHtml(fmtDate(summary.paidAt))} ${escapeHtml(fmtTime(summary.paidAt))}` : "Caja ya valido este servicio."}</small>
+          </div>
+          ${renderPaymentBadge(order)}
+        </div>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="client-payment-card${compactClass}">
+      <div class="client-payment-head">
+        <div>
+          <span>Pago semi-manual</span>
+          <strong>${summary.status === "por_verificar" ? "Referencia enviada a caja" : "Enviar pago para verificar"}</strong>
+          <small>${summary.balance > 0 ? `Balance estimado ${money(summary.balance)}` : "El total se confirma al revisar el pedido."}</small>
+        </div>
+        ${renderPaymentBadge(order)}
+      </div>
+      ${
+        report
+          ? `
+            <div class="client-payment-current">
+              <span>Ultimo reporte</span>
+              <strong>${money(report.amount || 0)} | ${escapeHtml(getPaymentMethodLabel(report.method))}</strong>
+              <small>${escapeHtml(reference ? `Referencia: ${reference}` : "Referencia pendiente")}${reportDate ? ` | ${escapeHtml(reportDate)}` : ""}</small>
+            </div>
+          `
+          : ""
+      }
+      ${
+        canReport && hasTotalReady
+          ? `
+            <form class="client-payment-form" data-client-payment-form="${order.id}">
+              <div class="client-payment-grid">
+                <label>
+                  <span>Metodo</span>
+                  <select data-client-payment-method="${order.id}">
+                    <option value="transferencia" ${method === "transferencia" ? "selected" : ""}>Transferencia</option>
+                    <option value="deposito" ${method === "deposito" ? "selected" : ""}>Deposito</option>
+                    <option value="tarjeta" ${method === "tarjeta" ? "selected" : ""}>Tarjeta</option>
+                    <option value="mixto" ${method === "mixto" ? "selected" : ""}>Mixto</option>
+                    <option value="otro" ${method === "otro" ? "selected" : ""}>Otro</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Monto enviado</span>
+                  <input type="number" min="1" step="0.01" data-client-payment-amount="${order.id}" value="${Number(defaultAmount || 0).toFixed(2)}">
+                </label>
+                <label>
+                  <span>Referencia</span>
+                  <input type="text" maxlength="120" data-client-payment-reference="${order.id}" value="${escapeHtml(reference)}" placeholder="No. transferencia o comprobante">
+                </label>
+              </div>
+              <label class="client-payment-comment">
+                <span>Comentario para caja</span>
+                <textarea maxlength="240" data-client-payment-note="${order.id}" placeholder="Nombre y si es mas de un pedido poner el numero de pedido.">${escapeHtml(note)}</textarea>
+              </label>
+              <div class="client-payment-actions">
+                <small>Este pago queda pendiente hasta que caja lo valide.</small>
+                <button class="btn btn-small btn-primary" type="submit">${report ? "Actualizar reporte" : "Enviar a caja"}</button>
+              </div>
+            </form>
+          `
+          : `
+            <div class="client-payment-wait">
+              <strong>${canReport ? "Pago disponible cuando el total este listo." : "Este pedido no acepta reportes ahora."}</strong>
+              <span>${canReport ? "Cuando caja confirme peso o prendas, podras enviar referencia y comentario." : "Si necesitas ayuda, contacta soporte."}</span>
+            </div>
+          `
+      }
+    </section>
+  `;
+}
+
 function buildCashDeskSummary(orders) {
   const unique = new Map();
   (orders || []).forEach((order) => {
@@ -7897,12 +8079,13 @@ function buildCashDeskSummary(orders) {
       summary.pending += payment.balance;
       if (payment.status === "pagado") summary.paidOrders += 1;
       if (payment.status === "parcial") summary.partialOrders += 1;
+      if (payment.status === "por_verificar") summary.verifyingOrders += 1;
       if (payment.status === "pendiente") summary.pendingOrders += 1;
       const method = payment.payment.method || "sin_metodo";
       summary.byMethod[method] = (summary.byMethod[method] || 0) + payment.amountPaid;
       return summary;
     },
-    { orders: 0, expected: 0, paid: 0, pending: 0, paidOrders: 0, partialOrders: 0, pendingOrders: 0, byMethod: {} }
+    { orders: 0, expected: 0, paid: 0, pending: 0, paidOrders: 0, partialOrders: 0, pendingOrders: 0, verifyingOrders: 0, byMethod: {} }
   );
 }
 
@@ -7927,6 +8110,7 @@ function renderCashDeskSummary(orders) {
         <div><span>Facturado</span><strong>${money(summary.expected)}</strong></div>
         <div><span>Cobrado</span><strong>${money(summary.paid)}</strong></div>
         <div><span>Pendiente</span><strong>${money(summary.pending)}</strong></div>
+        <div><span>Por verificar</span><strong>${summary.verifyingOrders}</strong></div>
         <div><span>Pagados</span><strong>${summary.paidOrders}</strong></div>
       </div>
       <div class="cashdesk-methods">
@@ -10163,6 +10347,45 @@ async function updateLocalOperationOrder(ev) {
     showError(err.message || "No pudimos actualizar el pedido del local.");
   } finally {
     setButtonBusy(trigger, false);
+  }
+}
+
+function bindClientPaymentReportEvents(scope = document) {
+  const root = scope || document;
+  Array.from(root.querySelectorAll?.("[data-client-payment-form]") || []).forEach((form) => {
+    if (form.dataset.paymentReportBound === "1") return;
+    form.dataset.paymentReportBound = "1";
+    form.addEventListener("submit", submitClientPaymentReport);
+  });
+}
+
+async function submitClientPaymentReport(ev) {
+  ev.preventDefault();
+  const form = ev.currentTarget;
+  const orderId = form?.dataset?.clientPaymentForm;
+  const order = getOrderById(orderId);
+  if (!order) {
+    showWarning("No encontramos ese pedido para reportar pago.");
+    return;
+  }
+
+  const submit = form.querySelector('button[type="submit"]');
+  const body = {
+    method: form.querySelector(`[data-client-payment-method="${orderId}"]`)?.value || "transferencia",
+    amount: Number(form.querySelector(`[data-client-payment-amount="${orderId}"]`)?.value || 0),
+    reference: form.querySelector(`[data-client-payment-reference="${orderId}"]`)?.value.trim() || "",
+    note: form.querySelector(`[data-client-payment-note="${orderId}"]`)?.value.trim() || "",
+  };
+
+  try {
+    setButtonBusy(submit, true, "Enviando...");
+    await apiPost(`/orders/${orderId}/payment-report`, body);
+    showSuccess("Pago enviado a caja para verificacion.");
+    await loadAll({ screenId: getActiveScreenId() });
+  } catch (err) {
+    showError(err.message || "No pudimos reportar el pago.");
+  } finally {
+    setButtonBusy(submit, false);
   }
 }
 

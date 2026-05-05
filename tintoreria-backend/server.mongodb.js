@@ -154,8 +154,8 @@ const LOCAL_STATUS_TRANSITIONS = {
 const PHONE_REGEX = /^[0-9+\-\s()]{7,20}$/;
 const DELIVERY_PROOF_METHODS = new Set(["cliente", "porteria", "recepcion", "familiar", "otro"]);
 const DELIVERY_CODE_LENGTH = 6;
-const PAYMENT_METHODS = new Set(["efectivo", "transferencia", "tarjeta", "mixto", "credito"]);
-const PAYMENT_STATUS_HISTORY = new Set(["pago registrado", "pago actualizado"]);
+const PAYMENT_METHODS = new Set(["efectivo", "transferencia", "deposito", "tarjeta", "mixto", "credito", "otro"]);
+const PAYMENT_STATUS_HISTORY = new Set(["pago registrado", "pago actualizado", "pago reportado"]);
 const GARMENT_PRICES = {
   camisas: 120,
   "pantalones finos": 190,
@@ -244,6 +244,16 @@ function sanitizeOrderPaymentForUser(payment, user) {
     delete safePayment.registeredByUserId;
     delete safePayment.registeredByName;
     delete safePayment.notes;
+
+    if (user?.role !== "cliente") {
+      delete safePayment.clientReportedAmount;
+      delete safePayment.clientReportedMethod;
+      delete safePayment.clientReportedReference;
+      delete safePayment.clientReportedNote;
+      delete safePayment.clientReportedAt;
+      delete safePayment.clientReportedByUserId;
+      delete safePayment.clientReportedByName;
+    }
   }
   return safePayment;
 }
@@ -909,6 +919,51 @@ function normalizePaymentPayload(body, order) {
   };
 }
 
+function normalizeClientPaymentReportPayload(body, order) {
+  const breakdown = buildOrderChargeBreakdown(order);
+  const total = Number(breakdown.total || order?.payment?.totalSnapshot || 0);
+  const amount = Number(body?.amount ?? body?.amountPaid ?? 0);
+  const method = asText(body?.method || "").toLowerCase();
+  const reference = asText(body?.reference).slice(0, 120);
+  const note = asText(body?.note || body?.notes).slice(0, 240);
+
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 10000000) {
+    return { error: "El monto reportado no es valido." };
+  }
+
+  if (!PAYMENT_METHODS.has(method) || ["credito"].includes(method)) {
+    return { error: "Selecciona un metodo de pago valido." };
+  }
+
+  if (!isValidTextField(reference, { min: 3, max: 120, required: true })) {
+    return { error: "Agrega la referencia o numero de comprobante." };
+  }
+
+  if (!isValidTextField(note, { min: 0, max: 240, required: false })) {
+    return { error: "El comentario de pago es demasiado largo." };
+  }
+
+  const confirmedAmount = Number(order?.payment?.amountPaid || 0);
+
+  return {
+    value: {
+      status: "por_verificar",
+      method,
+      amountPaid: confirmedAmount,
+      totalSnapshot: total,
+      balance: Math.max(total - confirmedAmount, 0),
+      reference,
+      clientReportedAmount: amount,
+      clientReportedMethod: method,
+      clientReportedReference: reference,
+      clientReportedNote: note,
+      clientReportedAt: new Date(),
+      clientReportedByUserId: Number(order.userId || 0),
+      clientReportedByName: asText(order.userName),
+    },
+  };
+}
+
 function getCashCloseDate(value = "") {
   const raw = asText(value);
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
@@ -940,7 +995,7 @@ function buildCashCloseSummary(orders) {
       summary.orderIds.push(Number(order.id));
       if (status === "pagado") summary.paidOrderCount += 1;
       if (status === "parcial") summary.partialOrderCount += 1;
-      if (status === "pendiente") summary.pendingOrderCount += 1;
+      if (status === "pendiente" || status === "por_verificar") summary.pendingOrderCount += 1;
       summary.byMethod[method] = Number(summary.byMethod[method] || 0) + amountPaid;
       return summary;
     },
@@ -2553,6 +2608,87 @@ app.put(
       await createOrderStatusNotifications(order, targetStatus);
     }
     res.json({ message: "Pedido actualizado en local", order: publicOrder(order, req.user) });
+  })
+);
+
+app.post(
+  "/api/orders/:id/payment-report",
+  requireAuth,
+  requireRole("cliente"),
+  asyncHandler(async (req, res) => {
+    const orderId = Number(req.params.id);
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ message: "El id del pedido no es valido." });
+    }
+
+    const order = await Order.findOne({ id: orderId });
+    if (!order) return res.status(404).json({ message: "Pedido no encontrado" });
+
+    if (Number(order.userId) !== Number(req.user.id)) {
+      return res.status(403).json({ message: "Solo puedes reportar pagos de tus propios pedidos." });
+    }
+
+    const currentStatus = normalizeRequestedStatus(order.status);
+    if (currentStatus === "cancelado") {
+      return res.status(400).json({ message: "No se puede reportar pago de un pedido cancelado." });
+    }
+
+    const currentPayment = order.payment?.toObject ? order.payment.toObject() : order.payment || {};
+    const currentPaymentStatus = asText(currentPayment.status || "pendiente");
+    if (currentPaymentStatus === "pagado" && Number(currentPayment.balance || 0) <= 0) {
+      return res.status(400).json({ message: "Este pedido ya figura como pagado." });
+    }
+
+    const result = normalizeClientPaymentReportPayload(req.body || {}, order);
+    if (result.error) return res.status(400).json({ message: result.error });
+
+    order.payment = {
+      ...currentPayment,
+      ...result.value,
+    };
+
+    addHistory(
+      order,
+      "pago reportado",
+      "cliente",
+      req.user,
+      `Pago reportado para verificacion: RD$ ${result.value.clientReportedAmount.toFixed(2)} por ${result.value.clientReportedMethod}`
+    );
+
+    await order.save();
+
+    const notificationKeySuffix = Date.now();
+    await Promise.all([
+      createInternalNotification({
+        key: buildOrderNotificationKey(order, `payment-report-${notificationKeySuffix}`, "cajera"),
+        recipientRole: "cajera",
+        orderId: order.id,
+        orderChannel: order.channel,
+        title: "Pago reportado por cliente",
+        copy: `${order.userName || "Cliente"} envio una referencia para validar en caja.`,
+        meta: getOrderNotificationMeta(order),
+        tone: "warning",
+        screen: "screenProduction",
+        actionLabel: "Ver caja",
+        priority: 97,
+      }),
+      createInternalNotification({
+        key: buildOrderNotificationKey(order, `payment-report-${notificationKeySuffix}`, "gestor"),
+        recipientRole: "gestor",
+        orderId: order.id,
+        orderChannel: order.channel,
+        title: "Pago pendiente de validacion",
+        copy: `${order.userName || "Cliente"} reporto un pago para el pedido #${order.id}.`,
+        meta: getOrderNotificationMeta(order),
+        tone: "warning",
+        screen: order.channel === "local" ? "screenLocal" : "screenHome",
+        actionLabel: "Revisar",
+        priority: 95,
+      }),
+    ]);
+
+    res.json({ message: "Pago enviado a verificacion", order: publicOrder(order, req.user) });
   })
 );
 
