@@ -5258,6 +5258,18 @@ function bindAuthModeSwitch(switcher) {
   });
 }
 
+function bindPublicLandingActions(root = document) {
+  Array.from(root.querySelectorAll?.("[data-public-auth-target]") || []).forEach((button) => {
+    if (button.dataset.publicAuthBound === "1") return;
+    button.dataset.publicAuthBound = "1";
+    button.addEventListener("click", () => {
+      const target = button.dataset.publicAuthTarget || "login";
+      setAuthMode(target, { focusField: true });
+      qs("#authView .auth-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+}
+
 function attachAuthEvents() {
   qs("#loginForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -6199,69 +6211,126 @@ function ensureAuthEnhancements() {
     authView.appendChild(shell);
   }
 
+  authView.querySelector(".auth-shell")?.classList.add("auth-shell-public");
+
   ensureAuthSupportBlocks();
 
   const showcase = authView.querySelector(".auth-showcase");
   if (showcase) {
     showcase.innerHTML = `
-      <div class="auth-showcase-brand">
-        <div class="auth-showcase-mark">
-          <img src="${BUSINESS_ASSETS.logo}" alt="${BUSINESS_PROFILE.name}" />
-        </div>
-        <div class="auth-showcase-brand-copy">
-          <span>${BUSINESS_PROFILE.name}</span>
-          <strong>${BUSINESS_PROFILE.tagline}</strong>
-          <small>${BUSINESS_PROFILE.phone} | acceso privado y registro</small>
-        </div>
-      </div>
-      <div class="auth-kicker">Recepcion y cuidado textil</div>
-      <h1 class="auth-title">Una primera impresion premium para una tintoreria que si parece una marca real.</h1>
-      <p class="auth-copy">
-        ${BUSINESS_PROFILE.name} combina recogida, seguimiento, facturacion y atencion
-        con una presencia mas sobria, elegante y lista para compartirse con clientes y terceros.
-      </p>
-      <div class="auth-trust-grid">
-        <div class="auth-trust-card">
-          <span>Horario</span>
-          <strong>${BUSINESS_PROFILE.schedule}</strong>
-        </div>
-        <div class="auth-trust-card">
-          <span>Canal directo</span>
-          <strong>${BUSINESS_PROFILE.phone}</strong>
-        </div>
-        <div class="auth-trust-card">
-          <span>Acceso</span>
-          <strong>Iniciar sesion o crear cuenta</strong>
-        </div>
-      </div>
-      <div class="auth-feature-grid auth-feature-grid-premium">
-        <div class="auth-feature-card">
-          <span class="feature-pill">Seguimiento</span>
-          <strong>Lectura limpia del pedido</strong>
-          <p>Consulta cada servicio con estado, factura, detalle y mapa en una sola experiencia.</p>
-        </div>
-        <div class="auth-feature-card">
-          <span class="feature-pill">Coordinacion</span>
-          <strong>Operacion mas ordenada</strong>
-          <p>Clientes, gestor, repartidores y caja conviven desde una recepcion visual mucho mas clara.</p>
-        </div>
-        <div class="auth-feature-card auth-feature-card-wide">
-          <span class="feature-pill">Servicio</span>
-          <strong>Preparada para crecer</strong>
-          <p>Opera por libra, por prendas o en formato mixto con un tono mas serio, mas premium y mas confiable.</p>
-        </div>
-      </div>
-      <div class="auth-preview auth-preview-premium">
-        <div class="preview-header">
-          <span class="preview-label">Flujo privado</span>
-          <span class="preview-note">${BUSINESS_PROFILE.schedule}</span>
-        </div>
-        <div class="preview-steps">
-          <div class="preview-step preview-step-active">Solicitud</div>
-          <div class="preview-step">Coordinacion</div>
-          <div class="preview-step">Ruta</div>
-          <div class="preview-step">Entrega</div>
-        </div>
+      <div class="public-landing">
+        <nav class="public-landing-nav" aria-label="Navegacion publica">
+          <a href="#publicServices">Servicios</a>
+          <a href="#publicProcess">Proceso</a>
+          <a href="#publicContact">Contacto</a>
+        </nav>
+
+        <section class="public-hero">
+          <div class="auth-showcase-brand public-brand-card">
+            <div class="auth-showcase-mark">
+              <img src="${BUSINESS_ASSETS.logo}" alt="${BUSINESS_PROFILE.name}" />
+            </div>
+            <div class="auth-showcase-brand-copy">
+              <span>${BUSINESS_PROFILE.name}</span>
+              <strong>${BUSINESS_PROFILE.tagline}</strong>
+              <small>${BUSINESS_PROFILE.phone} | ${BUSINESS_PROFILE.address}</small>
+            </div>
+          </div>
+
+          <div class="public-hero-copy">
+            <div class="auth-kicker">Cuidado textil premium</div>
+            <h1 class="auth-title public-title">Lavanderia y tintoreria con recogida elegante, clara y confiable.</h1>
+            <p class="auth-copy public-copy">
+              ${BUSINESS_PROFILE.name} organiza recogidas, tratamiento, pagos, facturas y entregas desde una experiencia
+              pensada para hogares, oficinas y clientes que quieren un servicio mas serio desde el primer contacto.
+            </p>
+            <div class="public-hero-actions">
+              <button class="btn btn-primary" type="button" data-public-auth-target="register">Crear cuenta</button>
+              <button class="btn btn-outline" type="button" data-public-auth-target="login">Iniciar sesion</button>
+              <a class="btn btn-outline" href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${encodeURIComponent(`Hola, quiero informacion sobre ${BUSINESS_PROFILE.name}.`)}" target="_blank" rel="noreferrer">WhatsApp</a>
+            </div>
+          </div>
+
+          <div class="public-hero-card" aria-label="Resumen del servicio">
+            <div class="public-hero-card-top">
+              <span>Servicio signature</span>
+              <strong>Recepcion | Lavado | Entrega</strong>
+            </div>
+            <div class="public-route-line">
+              <span class="is-active">Solicitud</span>
+              <span>Ruta</span>
+              <span>Local</span>
+              <span>Entrega</span>
+            </div>
+            <div class="public-hero-card-note">
+              Seguimiento privado, PIN de entrega, reporte de pago y factura clara en tu cuenta.
+            </div>
+          </div>
+        </section>
+
+        <section class="public-trust-grid" aria-label="Confianza de Menta Laundry">
+          <div class="auth-trust-card public-trust-card">
+            <span>Horario</span>
+            <strong>${BUSINESS_PROFILE.schedule}</strong>
+          </div>
+          <div class="auth-trust-card public-trust-card">
+            <span>Canal directo</span>
+            <strong>${BUSINESS_PROFILE.phone}</strong>
+          </div>
+          <div class="auth-trust-card public-trust-card">
+            <span>Panel privado</span>
+            <strong>Pedidos, factura, pagos y seguimiento</strong>
+          </div>
+        </section>
+
+        <section id="publicServices" class="public-section">
+          <div class="public-section-head">
+            <span>Servicios</span>
+            <strong>Lo esencial para una operacion real</strong>
+          </div>
+          <div class="auth-feature-grid auth-feature-grid-premium public-service-grid">
+            <div class="auth-feature-card public-service-card">
+              <span class="feature-pill">Por libra</span>
+              <strong>Lavado + Planchado</strong>
+              <p>Ideal para ropa diaria, hogares y clientes recurrentes que quieren rapidez sin perder control.</p>
+            </div>
+            <div class="auth-feature-card public-service-card">
+              <span class="feature-pill">Prendas finas</span>
+              <strong>Cuidado seleccionado</strong>
+              <p>Camisas, pantalones finos, sacos, vestidos y piezas que requieren lectura mas delicada.</p>
+            </div>
+            <div class="auth-feature-card auth-feature-card-wide public-service-card">
+              <span class="feature-pill">Mixto</span>
+              <strong>Paquetes combinados con extras</strong>
+              <p>Manchas, costura basica, aromatizante premium y servicios extra se organizan desde el pedido.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="publicProcess" class="public-section public-process">
+          <div class="public-section-head">
+            <span>Proceso</span>
+            <strong>Una experiencia visible de principio a fin</strong>
+          </div>
+          <div class="public-process-grid">
+            <div><span>01</span><strong>Agenda</strong><p>Creas la solicitud con direccion, GPS y tipo de servicio.</p></div>
+            <div><span>02</span><strong>Recogida</strong><p>El repartidor confirma con PIN y ruta asignada.</p></div>
+            <div><span>03</span><strong>Local</strong><p>Caja y produccion reciben, pesan y actualizan tratamiento.</p></div>
+            <div><span>04</span><strong>Entrega</strong><p>Recibes factura, estado final y cierre con confirmacion.</p></div>
+          </div>
+        </section>
+
+        <section id="publicContact" class="public-contact-card">
+          <div>
+            <span>Contacto directo</span>
+            <strong>Listos para coordinar tu proxima recogida.</strong>
+            <small>${BUSINESS_PROFILE.email} | ${BUSINESS_PROFILE.address}</small>
+          </div>
+          <div class="public-contact-actions">
+            <a class="btn btn-small" href="tel:+${BUSINESS_PHONE_DIGITS}">Llamar</a>
+            <a class="btn btn-small btn-outline" href="mailto:${BUSINESS_PROFILE.email}">Correo</a>
+          </div>
+        </section>
       </div>
     `;
   }
@@ -6441,6 +6510,7 @@ function ensureAuthEnhancements() {
   }
 
   bindAuthModeSwitch(modeSwitch);
+  bindPublicLandingActions(authView);
   setAuthMode(authCard.dataset.authMode || "login");
 }
 
