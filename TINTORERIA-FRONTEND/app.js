@@ -1690,6 +1690,11 @@ function fmtDate(dateStr) {
   return d.toLocaleDateString("es-DO", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function getLocalDateKey(date = new Date()) {
+  const adjusted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return adjusted.toISOString().slice(0, 10);
+}
+
 function fmtTime(isoOrTime) {
   if (!isoOrTime) return "";
   // Si viene ISO:
@@ -5331,6 +5336,14 @@ const PRICING_MODE_LABELS = {
   mixto: "Mixto",
 };
 
+const PAYMENT_METHOD_LABELS = {
+  efectivo: "Efectivo",
+  transferencia: "Transferencia",
+  tarjeta: "Tarjeta",
+  mixto: "Mixto",
+  credito: "Credito",
+};
+
 const BUSINESS_PROFILE = {
   name: "Menta Laundry",
   legalName: "Menta Laundry SRL",
@@ -7775,6 +7788,157 @@ function buildOrderChargeBreakdown(order) {
   };
 }
 
+function getOrderPayment(order) {
+  return order?.payment && typeof order.payment === "object" ? order.payment : {};
+}
+
+function getPaymentStatusLabel(status) {
+  const value = String(status || "pendiente").toLowerCase();
+  if (value === "pagado") return "Pagado";
+  if (value === "parcial") return "Parcial";
+  return "Pendiente";
+}
+
+function getPaymentMethodLabel(method) {
+  return PAYMENT_METHOD_LABELS[String(method || "").toLowerCase()] || "Sin metodo";
+}
+
+function getOrderPaymentSummary(order) {
+  const breakdown = buildOrderChargeBreakdown(order);
+  const payment = getOrderPayment(order);
+  const total = Number(breakdown.total || payment.totalSnapshot || 0);
+  const amountPaid = Number(payment.amountPaid || 0);
+  const balance = Math.max(Number(payment.balance ?? (total - amountPaid)), 0);
+  const status = String(payment.status || (amountPaid > 0 ? (balance > 0 ? "parcial" : "pagado") : "pendiente")).toLowerCase();
+
+  return {
+    payment,
+    breakdown,
+    total,
+    amountPaid,
+    balance,
+    status,
+    paidAt: payment.registeredAt || payment.paidAt || "",
+  };
+}
+
+function renderPaymentBadge(order) {
+  const summary = getOrderPaymentSummary(order);
+  return `<span class="payment-pill payment-pill-${escapeHtml(summary.status)}">${escapeHtml(getPaymentStatusLabel(summary.status))}</span>`;
+}
+
+function renderPaymentControl(order) {
+  const summary = getOrderPaymentSummary(order);
+  const defaultAmount = summary.amountPaid > 0
+    ? summary.amountPaid
+    : summary.total > 0
+      ? summary.total
+      : 0;
+  const method = summary.payment.method || "efectivo";
+  const canEditPayment = ["cajera", "gestor"].includes(currentUser?.role);
+
+  return `
+    <div class="payment-control-card">
+      <div class="payment-control-head">
+        <div>
+          <span>Cobro</span>
+          <strong>${summary.total > 0 ? money(summary.total) : "Por confirmar"}</strong>
+          <small>${summary.amountPaid > 0 ? `Pagado ${money(summary.amountPaid)} | Pendiente ${money(summary.balance)}` : "Sin pago registrado"}</small>
+        </div>
+        ${renderPaymentBadge(order)}
+      </div>
+      ${
+        canEditPayment
+          ? `
+            <div class="payment-control-grid">
+              <label>
+                <span>Metodo</span>
+                <select data-payment-method="${order.id}">
+                  ${Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => `<option value="${value}" ${value === method ? "selected" : ""}>${label}</option>`).join("")}
+                </select>
+              </label>
+              <label>
+                <span>Monto recibido</span>
+                <input type="number" min="0" step="0.01" data-payment-amount="${order.id}" value="${Number(defaultAmount || 0).toFixed(2)}">
+              </label>
+              <label>
+                <span>Referencia</span>
+                <input type="text" data-payment-reference="${order.id}" value="${escapeHtml(summary.payment.reference || "")}" placeholder="No. transferencia, voucher...">
+              </label>
+            </div>
+            <div class="payment-control-actions">
+              <input type="text" data-payment-notes="${order.id}" value="${escapeHtml(summary.payment.notes || "")}" placeholder="Nota interna opcional">
+              <button class="btn btn-small btn-primary" type="button" data-payment-save="${order.id}">Registrar pago</button>
+            </div>
+          `
+          : `
+            <div class="payment-control-readonly">
+              <span>${escapeHtml(getPaymentMethodLabel(summary.payment.method))}</span>
+              <span>${summary.paidAt ? `${escapeHtml(fmtDate(summary.paidAt))} ${escapeHtml(fmtTime(summary.paidAt))}` : "Pago aun pendiente"}</span>
+            </div>
+          `
+      }
+    </div>
+  `;
+}
+
+function buildCashDeskSummary(orders) {
+  const unique = new Map();
+  (orders || []).forEach((order) => {
+    if (order?.id) unique.set(String(order.id), order);
+  });
+
+  return Array.from(unique.values()).reduce(
+    (summary, order) => {
+      const payment = getOrderPaymentSummary(order);
+      summary.orders += 1;
+      summary.expected += payment.total;
+      summary.paid += payment.amountPaid;
+      summary.pending += payment.balance;
+      if (payment.status === "pagado") summary.paidOrders += 1;
+      if (payment.status === "parcial") summary.partialOrders += 1;
+      if (payment.status === "pendiente") summary.pendingOrders += 1;
+      const method = payment.payment.method || "sin_metodo";
+      summary.byMethod[method] = (summary.byMethod[method] || 0) + payment.amountPaid;
+      return summary;
+    },
+    { orders: 0, expected: 0, paid: 0, pending: 0, paidOrders: 0, partialOrders: 0, pendingOrders: 0, byMethod: {} }
+  );
+}
+
+function renderCashDeskSummary(orders) {
+  const summary = buildCashDeskSummary(orders);
+  const methodItems = Object.entries(summary.byMethod)
+    .filter(([, amount]) => amount > 0)
+    .map(([method, amount]) => `<span>${escapeHtml(getPaymentMethodLabel(method))}: <strong>${money(amount)}</strong></span>`)
+    .join("");
+
+  return `
+    <div class="cashdesk-panel">
+      <div class="cashdesk-head">
+        <div>
+          <div class="card-eyebrow">Caja real</div>
+          <div class="card-title">Control de cobros</div>
+          <div class="card-secondary">Registra pago, metodo, referencia y balance pendiente por pedido.</div>
+        </div>
+        <span class="estimate-badge">${summary.orders} pedidos</span>
+      </div>
+      <div class="cashdesk-metrics">
+        <div><span>Facturado</span><strong>${money(summary.expected)}</strong></div>
+        <div><span>Cobrado</span><strong>${money(summary.paid)}</strong></div>
+        <div><span>Pendiente</span><strong>${money(summary.pending)}</strong></div>
+        <div><span>Pagados</span><strong>${summary.paidOrders}</strong></div>
+      </div>
+      <div class="cashdesk-methods">
+        ${methodItems || "<span>Sin cobros registrados todavia.</span>"}
+      </div>
+      <div class="cashdesk-actions">
+        <button class="btn btn-small btn-outline" type="button" data-cash-close="today">Cerrar caja de hoy</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderTagList(items, emptyText = "No aplica") {
   if (!items.length) return `<span class="detail-tag detail-tag-muted">${escapeHtml(emptyText)}</span>`;
   return items.map((item) => `<span class="detail-tag">${escapeHtml(item)}</span>`).join("");
@@ -9902,6 +10066,8 @@ function renderLocalOrderOpsCard(order, stage) {
         <span>${escapeHtml(latest)}</span>
       </div>
 
+      ${renderPaymentControl(order)}
+
       <div class="local-order-actions">
         ${actionButton}
         <button class="btn btn-small btn-outline" type="button" data-local-save="${order.id}">Guardar datos</button>
@@ -9928,6 +10094,7 @@ function renderLocalOperationsPanel(container, options = {}) {
       </div>
       <span class="estimate-badge">${orders.length} visibles</span>
     </div>
+    ${renderCashDeskSummary(orders)}
     <div class="local-ops-metrics">${renderLocalOpsMetrics(buckets)}</div>
     <div class="local-ops-columns">
       ${visibleStages.map((stage) => `
@@ -9964,6 +10131,12 @@ function bindLocalOperationEvents(scope) {
   Array.from(scope.querySelectorAll("[data-local-save]")).forEach((btn) => {
     btn.addEventListener("click", updateLocalOperationOrder);
   });
+  Array.from(scope.querySelectorAll("[data-payment-save]")).forEach((btn) => {
+    btn.addEventListener("click", updateOrderPayment);
+  });
+  Array.from(scope.querySelectorAll("[data-cash-close]")).forEach((btn) => {
+    btn.addEventListener("click", closeCashDesk);
+  });
 }
 
 async function updateLocalOperationOrder(ev) {
@@ -9988,6 +10161,53 @@ async function updateLocalOperationOrder(ev) {
     await loadAll({ screenId: getActiveScreenId() });
   } catch (err) {
     showError(err.message || "No pudimos actualizar el pedido del local.");
+  } finally {
+    setButtonBusy(trigger, false);
+  }
+}
+
+async function updateOrderPayment(ev) {
+  const trigger = ev.currentTarget || ev.target;
+  const orderId = trigger?.dataset?.paymentSave;
+  const order = getOrderById(orderId);
+  if (!order) {
+    showWarning("No encontramos ese pedido para registrar pago.");
+    return;
+  }
+
+  const body = {
+    method: qs(`[data-payment-method="${orderId}"]`)?.value || "",
+    amountPaid: Number(qs(`[data-payment-amount="${orderId}"]`)?.value || 0),
+    reference: qs(`[data-payment-reference="${orderId}"]`)?.value.trim() || "",
+    notes: qs(`[data-payment-notes="${orderId}"]`)?.value.trim() || "",
+  };
+
+  try {
+    setButtonBusy(trigger, true, "Registrando...");
+    await apiPut(`/orders/${orderId}/payment`, body);
+    showSuccess(`Pago del pedido #${orderId} registrado.`);
+    await loadAll({ screenId: getActiveScreenId() });
+  } catch (err) {
+    showError(err.message || "No pudimos registrar el pago.");
+  } finally {
+    setButtonBusy(trigger, false);
+  }
+}
+
+async function closeCashDesk(ev) {
+  const trigger = ev.currentTarget || ev.target;
+  const today = getLocalDateKey();
+
+  try {
+    setButtonBusy(trigger, true, "Cerrando...");
+    const data = await apiPost("/cash/close", {
+      date: today,
+      notes: "Cierre generado desde el panel de caja.",
+    });
+    const paid = Number(data?.summary?.paidTotal || 0);
+    showSuccess(`Cierre de caja registrado: ${money(paid)} cobrados.`);
+  } catch (err) {
+    showError(err.message || "No pudimos cerrar caja.");
   } finally {
     setButtonBusy(trigger, false);
   }
@@ -10893,6 +11113,7 @@ function openInvoice(ev) {
   const garments = breakdown.garments;
   const contactPhone = getOrderContactPhone(order);
   const location = getOrderLocation(order);
+  const paymentSummary = getOrderPaymentSummary(order);
   const historyLines = (order.history || [])
     .slice(-5)
     .reverse()
@@ -10912,6 +11133,7 @@ function openInvoice(ev) {
     <div class="invoice-meta-row"><span>Fecha servicio</span><strong>${escapeHtml(fmtDate(order.date))}</strong></div>
     <div class="invoice-meta-row"><span>Hora</span><strong>${escapeHtml(fmtTime(order.time) || "--")}</strong></div>
     <div class="invoice-meta-row"><span>Estado</span><strong>${escapeHtml(formatStatusLabel(order.status))}</strong></div>
+    <div class="invoice-meta-row"><span>Pago</span><strong>${escapeHtml(getPaymentStatusLabel(paymentSummary.status))}</strong></div>
   `;
 
   qs("#invoiceClient").innerHTML = `
@@ -10929,6 +11151,10 @@ function openInvoice(ev) {
     <div class="invoice-summary-row"><span>Repartidor</span><strong>${escapeHtml(order.repartidorName || "Pendiente")}</strong></div>
     <div class="invoice-summary-row"><span>Libras</span><strong>${breakdown.lbs > 0 ? `${escapeHtml(breakdown.lbs.toFixed(1))} lb` : "Pendiente de pesaje"}</strong></div>
     <div class="invoice-summary-row"><span>Ubicacion</span><strong>${escapeHtml(location ? "GPS verificado" : "Direccion manual")}</strong></div>
+    <div class="invoice-summary-row"><span>Metodo pago</span><strong>${escapeHtml(getPaymentMethodLabel(paymentSummary.payment.method))}</strong></div>
+    <div class="invoice-summary-row"><span>Pagado</span><strong>${money(paymentSummary.amountPaid)}</strong></div>
+    <div class="invoice-summary-row"><span>Balance</span><strong>${money(paymentSummary.balance)}</strong></div>
+    ${paymentSummary.payment.reference ? `<div class="invoice-summary-note">Referencia pago: ${escapeHtml(paymentSummary.payment.reference)}</div>` : ""}
     ${
       deliveryProof
         ? `
@@ -11006,6 +11232,7 @@ function openDetail(ev) {
   const garments = breakdown.garments;
   const contactPhone = getOrderContactPhone(order);
   const location = getOrderLocation(order);
+  const paymentSummary = getOrderPaymentSummary(order);
   const historyItems = (order.history || [])
     .slice()
     .reverse()
@@ -11106,6 +11333,9 @@ function openDetail(ev) {
         <div><span class="detail-label">Subtotal</span><div class="detail-value">${breakdown.weightPending ? (breakdown.subtotal > 0 ? `Desde ${money(breakdown.subtotal)}` : "Por confirmar") : money(breakdown.subtotal)}</div></div>
         <div><span class="detail-label">ITBIS</span><div class="detail-value">${breakdown.weightPending ? (breakdown.itbis > 0 ? `Desde ${money(breakdown.itbis)}` : "Por confirmar") : money(breakdown.itbis)}</div></div>
         <div><span class="detail-label">Total</span><div class="detail-value">${breakdown.weightPending ? (breakdown.total > 0 ? `Desde ${money(breakdown.total)}` : "Por confirmar") : money(breakdown.total)}</div></div>
+        <div><span class="detail-label">Estado de pago</span><div class="detail-value">${escapeHtml(getPaymentStatusLabel(paymentSummary.status))}</div></div>
+        <div><span class="detail-label">Pagado</span><div class="detail-value">${money(paymentSummary.amountPaid)}</div></div>
+        <div><span class="detail-label">Balance</span><div class="detail-value">${money(paymentSummary.balance)}</div></div>
       </div>
     </div>
 

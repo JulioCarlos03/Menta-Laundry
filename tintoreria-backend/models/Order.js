@@ -90,6 +90,60 @@ const emailNotificationSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const paymentSchema = new mongoose.Schema(
+  {
+    status: {
+      type: String,
+      default: "pendiente",
+      trim: true,
+    },
+    method: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    amountPaid: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    totalSnapshot: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    balance: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    reference: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    notes: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    registeredAt: {
+      type: Date,
+      default: null,
+    },
+    registeredByUserId: {
+      type: Number,
+      default: null,
+    },
+    registeredByName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+  },
+  { _id: false }
+);
+
 const deliveryProofSchema = new mongoose.Schema(
   {
     receiverName: {
@@ -281,6 +335,10 @@ const orderSchema = new mongoose.Schema(
     emailNotifications: {
       type: [emailNotificationSchema],
       default: [],
+    },
+    payment: {
+      type: paymentSchema,
+      default: () => ({ status: "pendiente" }),
     },
     deliveryProof: {
       type: deliveryProofSchema,

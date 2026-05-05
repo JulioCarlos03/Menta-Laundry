@@ -11,6 +11,7 @@ const seedDemoData = require("./config/seed");
 const User = require("./models/User");
 const Order = require("./models/Order");
 const Notification = require("./models/Notification");
+const CashClose = require("./models/CashClose");
 const { sendEmail, getEmailMode } = require("./services/emailService");
 
 const app = express();
@@ -153,6 +154,15 @@ const LOCAL_STATUS_TRANSITIONS = {
 const PHONE_REGEX = /^[0-9+\-\s()]{7,20}$/;
 const DELIVERY_PROOF_METHODS = new Set(["cliente", "porteria", "recepcion", "familiar", "otro"]);
 const DELIVERY_CODE_LENGTH = 6;
+const PAYMENT_METHODS = new Set(["efectivo", "transferencia", "tarjeta", "mixto", "credito"]);
+const PAYMENT_STATUS_HISTORY = new Set(["pago registrado", "pago actualizado"]);
+const GARMENT_PRICES = {
+  camisas: 120,
+  "pantalones finos": 190,
+  blusas: 115,
+  vestidos: 320,
+  sacos: 360,
+};
 
 function publicUser(user) {
   const safe = user?.toObject ? user.toObject() : { ...user };
@@ -176,7 +186,7 @@ function normalizeHistoryActorRole(item) {
 function sanitizeOrderHistoryForUser(history, user) {
   const items = Array.isArray(history) ? history : [];
   const role = user?.role || "cliente";
-  const localAuditStatuses = new Set(LOCAL_OPERATION_STATUSES);
+  const localAuditStatuses = new Set([...LOCAL_OPERATION_STATUSES, ...PAYMENT_STATUS_HISTORY]);
 
   return items
     .filter((item) => {
@@ -226,6 +236,16 @@ function sanitizeOrderHistoryForUser(history, user) {
         at: item?.at || new Date(),
       };
     });
+}
+
+function sanitizeOrderPaymentForUser(payment, user) {
+  const safePayment = payment && typeof payment === "object" ? { ...payment } : { status: "pendiente" };
+  if (!["gestor", "cajera"].includes(user?.role)) {
+    delete safePayment.registeredByUserId;
+    delete safePayment.registeredByName;
+    delete safePayment.notes;
+  }
+  return safePayment;
 }
 
 function buildDeliveryCode(order) {
@@ -286,6 +306,7 @@ function publicOrder(order, user) {
   if (!safeOrder) return safeOrder;
 
   safeOrder.history = sanitizeOrderHistoryForUser(safeOrder.history, user);
+  safeOrder.payment = sanitizeOrderPaymentForUser(safeOrder.payment, user);
 
   if (canExposePickupCode(safeOrder, user)) {
     safeOrder.pickupCode = buildPickupCode(safeOrder);
@@ -784,6 +805,157 @@ function createHistoryEntry(status, by, actor = null, note = "") {
 function addHistory(order, status, by, actor = null, note = "") {
   if (!Array.isArray(order.history)) order.history = [];
   order.history.push(createHistoryEntry(status, by, actor, note));
+}
+
+function getGarmentPrice(name) {
+  return GARMENT_PRICES[asText(name).toLowerCase()] || 0;
+}
+
+function buildOrderChargeBreakdown(order) {
+  const pricingMode = ALLOWED_PRICING_MODES.includes(asText(order?.pricingMode))
+    ? asText(order.pricingMode)
+    : "por_libra";
+  const lbs = Math.max(Number(order?.lbs || 0), 0);
+  const extras = Array.isArray(order?.extras) ? order.extras : [];
+  const garments = Array.isArray(order?.selectedGarments) ? order.selectedGarments : [];
+  const lines = [];
+
+  if (pricingMode === "por_libra" || pricingMode === "mixto") {
+    lines.push({
+      label: "Ropa por libra",
+      qty: lbs,
+      price: 30,
+      total: lbs * 30,
+    });
+  }
+
+  if (pricingMode === "por_prendas" || pricingMode === "mixto") {
+    garments.forEach((item) => {
+      const qty = Math.max(Number(item?.qty || 0), 0);
+      const price = getGarmentPrice(item?.name);
+      if (!qty || !price) return;
+      lines.push({
+        label: asText(item.name),
+        qty,
+        price,
+        total: qty * price,
+      });
+    });
+  }
+
+  if (extras.length) {
+    lines.push({
+      label: "Extras",
+      qty: extras.length,
+      price: 75,
+      total: extras.length * 75,
+    });
+  }
+
+  const subtotal = lines.reduce((sum, line) => sum + Number(line.total || 0), 0);
+  const itbis = subtotal * BUSINESS_INFO.itbisRate;
+  const total = subtotal + itbis;
+
+  return {
+    subtotal,
+    itbis,
+    total,
+    weightPending: (pricingMode === "por_libra" || pricingMode === "mixto") && lbs <= 0,
+  };
+}
+
+function resolvePaymentStatus(amountPaid, total) {
+  const paid = Number(amountPaid || 0);
+  const expectedTotal = Number(total || 0);
+  if (paid <= 0) return "pendiente";
+  if (expectedTotal > 0 && paid + 0.001 < expectedTotal) return "parcial";
+  return "pagado";
+}
+
+function normalizePaymentPayload(body, order) {
+  const breakdown = buildOrderChargeBreakdown(order);
+  const total = Number(breakdown.total || 0);
+  const amountPaid = Number(body?.amountPaid ?? order?.payment?.amountPaid ?? 0);
+  const method = asText(body?.method || order?.payment?.method || "").toLowerCase();
+  const status = resolvePaymentStatus(amountPaid, total);
+
+  if (!Number.isFinite(amountPaid) || amountPaid < 0 || amountPaid > 10000000) {
+    return { error: "El monto pagado no es valido." };
+  }
+
+  if (amountPaid > 0 && !PAYMENT_METHODS.has(method)) {
+    return { error: "Selecciona un metodo de pago valido." };
+  }
+
+  if (!isValidTextField(body?.reference || "", { min: 0, max: 120, required: false })) {
+    return { error: "La referencia de pago es demasiado larga." };
+  }
+
+  if (!isValidTextField(body?.notes || "", { min: 0, max: 240, required: false })) {
+    return { error: "Las notas de pago son demasiado largas." };
+  }
+
+  return {
+    value: {
+      status,
+      method: PAYMENT_METHODS.has(method) ? method : "",
+      amountPaid,
+      totalSnapshot: total,
+      balance: Math.max(total - amountPaid, 0),
+      reference: asText(body?.reference).slice(0, 120),
+      notes: asText(body?.notes).slice(0, 240),
+      registeredAt: new Date(),
+    },
+  };
+}
+
+function getCashCloseDate(value = "") {
+  const raw = asText(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getCashCloseDateRange(date) {
+  const normalizedDate = getCashCloseDate(date);
+  // Menta opera en RD/Caracas time (UTC-04); this keeps late-night closes in the intended local day.
+  const start = new Date(`${normalizedDate}T04:00:00.000Z`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { normalizedDate, start, end };
+}
+
+function buildCashCloseSummary(orders) {
+  return (Array.isArray(orders) ? orders : []).reduce(
+    (summary, order) => {
+      const payment = order?.payment || {};
+      const total = Number(payment.totalSnapshot || buildOrderChargeBreakdown(order).total || 0);
+      const amountPaid = Number(payment.amountPaid || 0);
+      const balance = Math.max(Number(payment.balance ?? (total - amountPaid)), 0);
+      const status = asText(payment.status || resolvePaymentStatus(amountPaid, total));
+      const method = asText(payment.method || "sin_metodo") || "sin_metodo";
+
+      summary.orderCount += 1;
+      summary.expectedTotal += total;
+      summary.paidTotal += amountPaid;
+      summary.pendingTotal += balance;
+      summary.orderIds.push(Number(order.id));
+      if (status === "pagado") summary.paidOrderCount += 1;
+      if (status === "parcial") summary.partialOrderCount += 1;
+      if (status === "pendiente") summary.pendingOrderCount += 1;
+      summary.byMethod[method] = Number(summary.byMethod[method] || 0) + amountPaid;
+      return summary;
+    },
+    {
+      orderCount: 0,
+      paidOrderCount: 0,
+      partialOrderCount: 0,
+      pendingOrderCount: 0,
+      expectedTotal: 0,
+      paidTotal: 0,
+      pendingTotal: 0,
+      byMethod: {},
+      orderIds: [],
+    }
+  );
 }
 
 function getOrderStatusRank(status) {
@@ -2381,6 +2553,117 @@ app.put(
       await createOrderStatusNotifications(order, targetStatus);
     }
     res.json({ message: "Pedido actualizado en local", order: publicOrder(order, req.user) });
+  })
+);
+
+app.put(
+  "/api/orders/:id/payment",
+  requireAuth,
+  requireRole("cajera", "gestor"),
+  asyncHandler(async (req, res) => {
+    const orderId = Number(req.params.id);
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ message: "El id del pedido no es valido." });
+    }
+
+    const order = await Order.findOne({ id: orderId });
+    if (!order) return res.status(404).json({ message: "Pedido no encontrado" });
+
+    if (req.user.role === "cajera") {
+      const status = normalizeRequestedStatus(order.status);
+      const canCashierCharge =
+        order.channel === "local" ||
+        LOCAL_OPERATION_STATUSES.includes(status) ||
+        status === "entregado al cliente";
+      if (!canCashierCharge) {
+        return res.status(403).json({ message: "Caja solo puede registrar cobros de pedidos operables en local." });
+      }
+    }
+
+    const result = normalizePaymentPayload(req.body || {}, order);
+    if (result.error) return res.status(400).json({ message: result.error });
+
+    const previousStatus = asText(order.payment?.status || "pendiente");
+    order.payment = {
+      ...(order.payment?.toObject ? order.payment.toObject() : order.payment || {}),
+      ...result.value,
+      registeredByUserId: Number(req.user.id),
+      registeredByName: asText(req.user.name),
+    };
+
+    const paymentLabel = result.value.status === "pagado"
+      ? "Pago completo"
+      : result.value.status === "parcial"
+        ? "Pago parcial"
+        : "Pago pendiente";
+    addHistory(
+      order,
+      previousStatus === "pendiente" ? "pago registrado" : "pago actualizado",
+      req.user.role === "gestor" ? "gestor" : "cajera",
+      req.user,
+      `${paymentLabel}: RD$ ${result.value.amountPaid.toFixed(2)}${result.value.method ? ` por ${result.value.method}` : ""}`
+    );
+
+    await order.save();
+
+    res.json({ message: "Pago registrado", order: publicOrder(order, req.user) });
+  })
+);
+
+app.get(
+  "/api/cash/summary",
+  requireAuth,
+  requireRole("cajera", "gestor"),
+  asyncHandler(async (req, res) => {
+    const { normalizedDate, start, end } = getCashCloseDateRange(req.query.date);
+    const [orders, closes] = await Promise.all([
+      Order.find({
+        "payment.registeredAt": { $gte: start, $lt: end },
+      }).sort({ id: -1 }).lean(),
+      CashClose.find({ date: normalizedDate }).sort({ createdAt: -1 }).lean(),
+    ]);
+
+    res.json({
+      date: normalizedDate,
+      summary: buildCashCloseSummary(orders),
+      orders: orders.map((order) => publicOrder(order, req.user)),
+      closes,
+    });
+  })
+);
+
+app.post(
+  "/api/cash/close",
+  requireAuth,
+  requireRole("cajera", "gestor"),
+  asyncHandler(async (req, res) => {
+    const { normalizedDate, start, end } = getCashCloseDateRange(req.body?.date);
+    const notes = asText(req.body?.notes).slice(0, 240);
+
+    if (!isValidTextField(notes, { min: 0, max: 240, required: false })) {
+      return res.status(400).json({ message: "La nota del cierre es demasiado larga." });
+    }
+
+    const orders = await Order.find({
+      "payment.registeredAt": { $gte: start, $lt: end },
+    }).sort({ id: -1 }).lean();
+    const summary = buildCashCloseSummary(orders);
+
+    const close = await CashClose.create({
+      date: normalizedDate,
+      ...summary,
+      notes,
+      createdByUserId: Number(req.user.id),
+      createdByName: asText(req.user.name),
+    });
+
+    res.json({
+      message: "Cierre de caja registrado",
+      date: normalizedDate,
+      summary,
+      close,
+    });
   })
 );
 
