@@ -1206,6 +1206,7 @@ function syncSessionChrome() {
   const bottomNav = qs(".bottom-nav");
   const notificationsBtn = qs("#internalNotificationsBtn");
   const notificationsPanel = qs("#internalNotificationsPanel");
+  document.body.classList.toggle("public-landing-mode", !currentUser);
 
   if (currentUser) {
     show(logoutBtn);
@@ -1361,6 +1362,7 @@ function ensureAuthEnhancements() {
   const authView = qs("#authView");
   const authCard = authView?.querySelector(".auth-card");
   if (!authView || !authCard) return;
+  if (!currentUser) document.body.classList.add("public-landing-mode");
 
   if (!authView.querySelector(".auth-shell")) {
     const shell = document.createElement("div");
@@ -6220,103 +6222,115 @@ function ensureAuthEnhancements() {
     showcase.innerHTML = `
       <div class="public-landing">
         <nav class="public-landing-nav" aria-label="Navegacion publica">
-          <a href="#publicServices">Servicios</a>
-          <a href="#publicProcess">Proceso</a>
+          <a href="#publicServices">Cuidado</a>
+          <a href="#publicProcess">Como funciona</a>
           <a href="#publicContact">Contacto</a>
         </nav>
 
         <section class="public-hero">
-          <div class="auth-showcase-brand public-brand-card">
-            <div class="auth-showcase-mark">
-              <img src="${BUSINESS_ASSETS.logo}" alt="${BUSINESS_PROFILE.name}" />
+          <div class="public-hero-main">
+            <div class="auth-showcase-brand public-brand-card">
+              <div class="auth-showcase-mark">
+                <img src="${BUSINESS_ASSETS.logo}" alt="${BUSINESS_PROFILE.name}" />
+              </div>
+              <div class="auth-showcase-brand-copy">
+                <span>${BUSINESS_PROFILE.name}</span>
+                <strong>${BUSINESS_PROFILE.tagline}</strong>
+                <small>${BUSINESS_PROFILE.phone} | ${BUSINESS_PROFILE.address}</small>
+              </div>
             </div>
-            <div class="auth-showcase-brand-copy">
-              <span>${BUSINESS_PROFILE.name}</span>
-              <strong>${BUSINESS_PROFILE.tagline}</strong>
-              <small>${BUSINESS_PROFILE.phone} | ${BUSINESS_PROFILE.address}</small>
+
+            <div class="public-hero-copy">
+              <div class="public-modern-kicker">Lavanderia premium a domicilio</div>
+              <h1 class="auth-title public-title">Tu ropa lista, fresca y rastreable desde una sola cuenta.</h1>
+              <p class="auth-copy public-copy">
+                Agenda recogida, confirma ubicacion, mira el avance del pedido y reporta pagos sin llamadas eternas.
+                Una experiencia mas moderna para cuidar prendas reales.
+              </p>
+              <div class="public-hero-actions">
+                <button class="btn btn-primary" type="button" data-public-auth-target="register">Agendar mi primera recogida</button>
+                <button class="btn btn-outline" type="button" data-public-auth-target="login">Ya tengo cuenta</button>
+                <a class="btn btn-outline" href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${encodeURIComponent(`Hola, quiero informacion sobre ${BUSINESS_PROFILE.name}.`)}" target="_blank" rel="noreferrer">WhatsApp</a>
+              </div>
             </div>
           </div>
 
-          <div class="public-hero-copy">
-            <div class="auth-kicker">Cuidado textil premium</div>
-            <h1 class="auth-title public-title">Lavanderia y tintoreria con recogida elegante, clara y confiable.</h1>
-            <p class="auth-copy public-copy">
-              ${BUSINESS_PROFILE.name} organiza recogidas, tratamiento, pagos, facturas y entregas desde una experiencia
-              pensada para hogares, oficinas y clientes que quieren un servicio mas serio desde el primer contacto.
-            </p>
-            <div class="public-hero-actions">
-              <button class="btn btn-primary" type="button" data-public-auth-target="register">Crear cuenta</button>
-              <button class="btn btn-outline" type="button" data-public-auth-target="login">Iniciar sesion</button>
-              <a class="btn btn-outline" href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${encodeURIComponent(`Hola, quiero informacion sobre ${BUSINESS_PROFILE.name}.`)}" target="_blank" rel="noreferrer">WhatsApp</a>
+          <div class="public-hero-visual" aria-label="Vista moderna del servicio">
+            <div class="public-phone-card">
+              <div class="public-phone-top">
+                <span></span>
+                <strong>Pedido activo</strong>
+              </div>
+              <div class="public-phone-status">
+                <small>Lavado + Planchado</small>
+                <strong>En camino al local</strong>
+              </div>
+              <div class="public-phone-progress">
+                <span class="is-done"></span>
+                <span class="is-done"></span>
+                <span class="is-active"></span>
+                <span></span>
+              </div>
+              <div class="public-phone-grid">
+                <div><span>Ruta</span><strong>GPS listo</strong></div>
+                <div><span>Pago</span><strong>Por verificar</strong></div>
+              </div>
             </div>
-          </div>
-
-          <div class="public-hero-card" aria-label="Resumen del servicio">
-            <div class="public-hero-card-top">
-              <span>Servicio signature</span>
-              <strong>Recepcion | Lavado | Entrega</strong>
-            </div>
-            <div class="public-route-line">
-              <span class="is-active">Solicitud</span>
-              <span>Ruta</span>
-              <span>Local</span>
-              <span>Entrega</span>
-            </div>
-            <div class="public-hero-card-note">
-              Seguimiento privado, PIN de entrega, reporte de pago y factura clara en tu cuenta.
-            </div>
+            <div class="public-floating-pill public-floating-pill-one">PIN seguro</div>
+            <div class="public-floating-pill public-floating-pill-two">Factura clara</div>
+            <div class="public-floating-pill public-floating-pill-three">Soporte directo</div>
           </div>
         </section>
 
         <section class="public-trust-grid" aria-label="Confianza de Menta Laundry">
           <div class="auth-trust-card public-trust-card">
-            <span>Horario</span>
-            <strong>${BUSINESS_PROFILE.schedule}</strong>
+            <span>Horario extendido</span>
+            <strong>8:00 AM - 10:00 PM</strong>
           </div>
           <div class="auth-trust-card public-trust-card">
-            <span>Canal directo</span>
+            <span>Seguimiento</span>
+            <strong>Estados, PIN y factura en cuenta</strong>
+          </div>
+          <div class="auth-trust-card public-trust-card">
+            <span>Contacto humano</span>
             <strong>${BUSINESS_PROFILE.phone}</strong>
-          </div>
-          <div class="auth-trust-card public-trust-card">
-            <span>Panel privado</span>
-            <strong>Pedidos, factura, pagos y seguimiento</strong>
           </div>
         </section>
 
         <section id="publicServices" class="public-section">
           <div class="public-section-head">
-            <span>Servicios</span>
-            <strong>Lo esencial para una operacion real</strong>
+            <span>Cuidado textil</span>
+            <strong>Servicios claros, sin vueltas.</strong>
           </div>
           <div class="auth-feature-grid auth-feature-grid-premium public-service-grid">
             <div class="auth-feature-card public-service-card">
               <span class="feature-pill">Por libra</span>
               <strong>Lavado + Planchado</strong>
-              <p>Ideal para ropa diaria, hogares y clientes recurrentes que quieren rapidez sin perder control.</p>
+              <p>Para ropa diaria, hogares y oficinas que necesitan resolver rapido con seguimiento.</p>
             </div>
             <div class="auth-feature-card public-service-card">
-              <span class="feature-pill">Prendas finas</span>
-              <strong>Cuidado seleccionado</strong>
-              <p>Camisas, pantalones finos, sacos, vestidos y piezas que requieren lectura mas delicada.</p>
+              <span class="feature-pill">Seleccionadas</span>
+              <strong>Prendas delicadas</strong>
+              <p>Camisas, pantalones finos, vestidos y piezas que merecen una lectura mas cuidada.</p>
             </div>
             <div class="auth-feature-card auth-feature-card-wide public-service-card">
-              <span class="feature-pill">Mixto</span>
-              <strong>Paquetes combinados con extras</strong>
-              <p>Manchas, costura basica, aromatizante premium y servicios extra se organizan desde el pedido.</p>
+              <span class="feature-pill">Extras</span>
+              <strong>Manchas, costura y aromatizante</strong>
+              <p>Agrega detalles especiales desde la solicitud para que el equipo sepa que mirar.</p>
             </div>
           </div>
         </section>
 
         <section id="publicProcess" class="public-section public-process">
           <div class="public-section-head">
-            <span>Proceso</span>
-            <strong>Una experiencia visible de principio a fin</strong>
+            <span>Como funciona</span>
+            <strong>Simple, visual y verificable.</strong>
           </div>
           <div class="public-process-grid">
-            <div><span>01</span><strong>Agenda</strong><p>Creas la solicitud con direccion, GPS y tipo de servicio.</p></div>
-            <div><span>02</span><strong>Recogida</strong><p>El repartidor confirma con PIN y ruta asignada.</p></div>
-            <div><span>03</span><strong>Local</strong><p>Caja y produccion reciben, pesan y actualizan tratamiento.</p></div>
-            <div><span>04</span><strong>Entrega</strong><p>Recibes factura, estado final y cierre con confirmacion.</p></div>
+            <div><span>01</span><strong>Agenda</strong><p>Elige servicio, fecha, hora y punto de recogida.</p></div>
+            <div><span>02</span><strong>Confirmamos</strong><p>Ruta, PIN y repartidor quedan visibles en tu panel.</p></div>
+            <div><span>03</span><strong>Cuidamos</strong><p>El local pesa, revisa y mueve el pedido por etapas.</p></div>
+            <div><span>04</span><strong>Entregamos</strong><p>Factura, pago y cierre quedan guardados en tu cuenta.</p></div>
           </div>
         </section>
 
@@ -6382,17 +6396,17 @@ function ensureAuthEnhancements() {
 
   hero.innerHTML = `
     <div class="auth-card-hero-row">
-      <div class="auth-card-eyebrow">Acceso premium</div>
+      <div class="auth-card-eyebrow">Acceso privado</div>
       <div class="auth-card-hero-badge">${BUSINESS_PROFILE.name}</div>
     </div>
-    <div class="auth-card-hero-title">Iniciar sesion o crear cuenta</div>
+    <div class="auth-card-hero-title">Entra o agenda en segundos</div>
     <div class="auth-card-hero-copy">
-      Entra a tu panel privado o abre una cuenta nueva desde una experiencia mas clara, sobria y asistida.
+      Tu panel guarda pedidos, pagos, facturas y seguimiento sin perder el toque humano de Menta.
     </div>
     <div class="auth-card-points">
       <div class="auth-card-point">
-        <strong>Soporte directo</strong>
-        <span>WhatsApp, llamada y correo cuando necesites ayuda o verificacion.</span>
+        <strong>Nuevo cliente</strong>
+        <span>Crea la cuenta, verifica tu correo y agenda tu primera recogida.</span>
       </div>
     </div>
     <div class="auth-card-meta">
