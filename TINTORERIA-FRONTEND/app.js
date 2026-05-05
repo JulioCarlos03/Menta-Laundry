@@ -6403,15 +6403,10 @@ function ensureAuthEnhancements() {
     <div class="auth-card-hero-copy">
       Tu panel guarda pedidos, pagos, facturas y seguimiento sin perder el toque humano de Menta.
     </div>
-    <div class="auth-card-points">
-      <div class="auth-card-point">
-        <strong>Nuevo cliente</strong>
-        <span>Crea la cuenta, verifica tu correo y agenda tu primera recogida.</span>
-      </div>
-    </div>
-    <div class="auth-card-meta">
-      <span>${BUSINESS_PROFILE.phone}</span>
-      <span>${BUSINESS_PROFILE.email}</span>
+    <div class="auth-card-compact-meta">
+      <span>Correo verificado</span>
+      <span>Soporte por WhatsApp</span>
+      <span>Factura clara</span>
     </div>
   `;
 
