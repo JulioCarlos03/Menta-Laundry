@@ -12551,3 +12551,151 @@ body.public-landing-mode .auth-panel::before{
     font-size: .78rem;
   }
 }
+
+/* Dark variant for the public landing. Keep it separate so the light landing stays fresh. */
+body.public-landing-mode:not(.theme-light){
+  --bg: #06181d;
+  --card: rgba(8, 31, 37, .78);
+  --card2: rgba(12, 49, 57, .86);
+  --text: #ecfffb;
+  --muted: #9bc5c7;
+  --line: rgba(112, 238, 220, .16);
+  --line-strong: rgba(112, 238, 220, .28);
+  --primary: #58e1ce;
+  --primary2: #32a8d7;
+  --shadow: 0 32px 90px rgba(0,0,0,.36);
+  background:
+    radial-gradient(760px 420px at 8% 0%, rgba(88,225,206,.18), transparent 64%),
+    radial-gradient(620px 380px at 92% 0%, rgba(50,168,215,.16), transparent 62%),
+    linear-gradient(135deg, #041115, #08252b 48%, #06181d);
+}
+
+body.public-landing-mode:not(.theme-light)::before{
+  background:
+    linear-gradient(rgba(112,238,220,.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(112,238,220,.055) 1px, transparent 1px);
+  background-size: 34px 34px;
+  opacity: .55;
+}
+
+body.public-landing-mode:not(.theme-light)::after{
+  background: radial-gradient(circle, rgba(88,225,206,.13), transparent 66%);
+}
+
+body.public-landing-mode:not(.theme-light) .topbar{
+  border-bottom-color: rgba(112,238,220,.12);
+  background: rgba(5, 19, 23, .78);
+  box-shadow: 0 14px 36px rgba(0,0,0,.24);
+}
+
+body.public-landing-mode:not(.theme-light) .app-brand .app-name,
+body.public-landing-mode:not(.theme-light) .auth-trust-card strong,
+body.public-landing-mode:not(.theme-light) .auth-feature-card strong,
+body.public-landing-mode:not(.theme-light) .public-section-head strong,
+body.public-landing-mode:not(.theme-light) .public-contact-card strong,
+body.public-landing-mode:not(.theme-light) .auth-card-hero-title,
+body.public-landing-mode:not(.theme-light) .auth-panel h2,
+body.public-landing-mode:not(.theme-light) .public-phone-top strong,
+body.public-landing-mode:not(.theme-light) .public-phone-status strong,
+body.public-landing-mode:not(.theme-light) .public-phone-grid strong,
+body.public-landing-mode:not(.theme-light) .public-floating-pill{
+  color: #ecfffb;
+}
+
+body.public-landing-mode:not(.theme-light) .app-brand .app-subtitle,
+body.public-landing-mode:not(.theme-light) .auth-feature-card p,
+body.public-landing-mode:not(.theme-light) .public-process-grid p,
+body.public-landing-mode:not(.theme-light) .public-contact-card small,
+body.public-landing-mode:not(.theme-light) .auth-card-hero-copy,
+body.public-landing-mode:not(.theme-light) .auth-panel .auth-subtitle,
+body.public-landing-mode:not(.theme-light) .public-copy{
+  color: #9bc5c7;
+}
+
+body.public-landing-mode:not(.theme-light) .auth-shell-public .auth-showcase,
+body.public-landing-mode:not(.theme-light) .auth-card-premium{
+  border-color: rgba(112,238,220,.15);
+  background:
+    radial-gradient(520px 260px at 0% 0%, rgba(88,225,206,.12), transparent 70%),
+    radial-gradient(480px 260px at 100% 18%, rgba(50,168,215,.10), transparent 68%),
+    rgba(8,31,37,.74);
+  box-shadow: 0 34px 90px rgba(0,0,0,.30);
+}
+
+body.public-landing-mode:not(.theme-light) .public-brand-card,
+body.public-landing-mode:not(.theme-light) .public-trust-card,
+body.public-landing-mode:not(.theme-light) .public-service-card,
+body.public-landing-mode:not(.theme-light) .public-process-grid div,
+body.public-landing-mode:not(.theme-light) .public-contact-card,
+body.public-landing-mode:not(.theme-light) .auth-card-hero,
+body.public-landing-mode:not(.theme-light) .auth-panel,
+body.public-landing-mode:not(.theme-light) .auth-mode-switch,
+body.public-landing-mode:not(.theme-light) .auth-hint,
+body.public-landing-mode:not(.theme-light) .public-phone-card,
+body.public-landing-mode:not(.theme-light) .public-floating-pill{
+  border-color: rgba(112,238,220,.14);
+  background: rgba(9, 36, 42, .76);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 18px 46px rgba(0,0,0,.18);
+}
+
+body.public-landing-mode:not(.theme-light) .public-hero-visual{
+  border-color: rgba(112,238,220,.14);
+  background:
+    radial-gradient(260px 260px at 50% 20%, rgba(88,225,206,.15), transparent 70%),
+    linear-gradient(180deg, rgba(8,31,37,.76), rgba(7,25,30,.92));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 26px 70px rgba(0,0,0,.30);
+}
+
+body.public-landing-mode:not(.theme-light) .public-phone-grid div,
+body.public-landing-mode:not(.theme-light) .auth-card-compact-meta span{
+  background: rgba(14, 55, 62, .86);
+  border-color: rgba(112,238,220,.13);
+}
+
+body.public-landing-mode:not(.theme-light) .public-phone-status{
+  background: linear-gradient(135deg, rgba(88,225,206,.12), rgba(50,168,215,.10));
+}
+
+body.public-landing-mode:not(.theme-light) .public-phone-status small,
+body.public-landing-mode:not(.theme-light) .public-phone-grid span,
+body.public-landing-mode:not(.theme-light) .auth-showcase-brand-copy small{
+  color: #9bc5c7;
+}
+
+body.public-landing-mode:not(.theme-light) .auth-showcase-brand-copy span,
+body.public-landing-mode:not(.theme-light) .public-modern-kicker,
+body.public-landing-mode:not(.theme-light) .feature-pill,
+body.public-landing-mode:not(.theme-light) .auth-card-eyebrow,
+body.public-landing-mode:not(.theme-light) .auth-panel-kicker,
+body.public-landing-mode:not(.theme-light) .auth-card-compact-meta span,
+body.public-landing-mode:not(.theme-light) .auth-trust-card span,
+body.public-landing-mode:not(.theme-light) .public-section-head span,
+body.public-landing-mode:not(.theme-light) .public-contact-card span{
+  color: #6ef0dc;
+}
+
+body.public-landing-mode:not(.theme-light) .public-landing-nav a,
+body.public-landing-mode:not(.theme-light) .service-pill,
+body.public-landing-mode:not(.theme-light) .icon-btn,
+body.public-landing-mode:not(.theme-light) .btn-outline,
+body.public-landing-mode:not(.theme-light) .public-hero-actions .btn-outline,
+body.public-landing-mode:not(.theme-light) .auth-card-hero-badge,
+body.public-landing-mode:not(.theme-light) .auth-card-meta span{
+  border-color: rgba(112,238,220,.14);
+  background: rgba(9, 36, 42, .70);
+  color: #ecfffb;
+}
+
+body.public-landing-mode:not(.theme-light) .auth-mode-tab.is-active{
+  color: #ecfffb;
+  background: linear-gradient(135deg, rgba(88,225,206,.18), rgba(50,168,215,.13));
+}
+
+body.public-landing-mode:not(.theme-light) .public-phone-progress::before{
+  background: rgba(112,238,220,.16);
+}
+
+body.public-landing-mode:not(.theme-light) .public-phone-progress span{
+  border-color: rgba(112,238,220,.22);
+  background: #08252b;
+}

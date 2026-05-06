@@ -5354,7 +5354,11 @@ function attachAuthEvents() {
 
 function attachAppEvents() {
   qs("#logoutBtn")?.addEventListener("click", logout);
-  qs("#darkModeToggle")?.addEventListener("click", toggleTheme);
+  const themeToggle = qs("#darkModeToggle");
+  if (themeToggle && themeToggle.dataset.themeBound !== "1") {
+    themeToggle.dataset.themeBound = "1";
+    themeToggle.addEventListener("click", toggleTheme);
+  }
   qs("#quickOrderForm")?.addEventListener("submit", onCreateOrder);
   qs("#cashierForm")?.addEventListener("submit", onCreateLocalOrder);
   qs("#invoiceCloseBtn")?.addEventListener("click", closeInvoice);
