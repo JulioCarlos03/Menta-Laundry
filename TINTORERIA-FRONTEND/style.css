@@ -12602,6 +12602,13 @@ body.public-landing-mode:not(.theme-light) .public-floating-pill{
   color: #ecfffb;
 }
 
+body.public-landing-mode:not(.theme-light) .public-title{
+  color: #f4fffb;
+  text-shadow:
+    0 2px 0 rgba(112,238,220,.06),
+    0 18px 48px rgba(0,0,0,.36);
+}
+
 body.public-landing-mode:not(.theme-light) .app-brand .app-subtitle,
 body.public-landing-mode:not(.theme-light) .auth-feature-card p,
 body.public-landing-mode:not(.theme-light) .public-process-grid p,
