@@ -257,6 +257,78 @@ body.theme-light .field-group textarea{
 }
 .field-group textarea{ resize: vertical; min-height: 70px; }
 
+.password-input-wrap{
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.password-input-wrap input{
+  width: 100%;
+  padding-right: 52px;
+}
+
+.password-toggle-btn{
+  position: absolute;
+  right: 8px;
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(130,205,176,.22);
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .18s ease, background .18s ease, border-color .18s ease, transform .18s ease;
+}
+
+.password-toggle-btn:hover,
+.password-toggle-btn:focus-visible{
+  color: var(--text);
+  border-color: rgba(130,205,176,.36);
+  background: rgba(130,205,176,.14);
+  transform: translateY(-1px);
+}
+
+.password-toggle-btn svg{
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.password-toggle-btn circle{
+  fill: currentColor;
+  stroke: none;
+  opacity: .72;
+}
+
+.password-toggle-btn::after{
+  content: "";
+  position: absolute;
+  width: 20px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0;
+  transform: rotate(-42deg);
+  transition: opacity .18s ease;
+}
+
+.password-toggle-btn.is-visible::after{
+  opacity: .82;
+}
+
+body.theme-light .password-toggle-btn{
+  background: rgba(238,251,248,.86);
+  color: #2d6f67;
+}
+
 .stacked-form{
   display:flex;
   flex-direction:column;
@@ -12131,12 +12203,12 @@ body.public-landing-mode .public-modern-kicker{
 }
 
 body.public-landing-mode .public-title{
-  max-width: 12ch;
+  max-width: 14ch;
   margin: 0;
   color: #0f3038;
-  font-size: clamp(3.15rem, 6vw, 5.9rem);
-  line-height: .86;
-  letter-spacing: -.085em;
+  font-size: clamp(2.7rem, 5vw, 4.85rem);
+  line-height: .93;
+  letter-spacing: -.065em;
   font-family: var(--font-heading);
   font-weight: 950;
 }
@@ -12493,8 +12565,9 @@ body.public-landing-mode .auth-panel::before{
   }
 
   body.public-landing-mode .public-title{
-    max-width: 11ch;
-    font-size: clamp(2.55rem, 13vw, 4.4rem);
+    max-width: 13ch;
+    font-size: clamp(2.15rem, 9.6vw, 3.1rem);
+    line-height: .96;
   }
 
   body.public-landing-mode .auth-card-hero{
@@ -12549,6 +12622,11 @@ body.public-landing-mode .auth-panel::before{
 
   body.public-landing-mode .public-floating-pill{
     font-size: .78rem;
+  }
+
+  body.public-landing-mode .public-title{
+    max-width: 12.5ch;
+    font-size: clamp(2.05rem, 10vw, 2.85rem);
   }
 }
 
@@ -12705,4 +12783,8 @@ body.public-landing-mode:not(.theme-light) .public-phone-progress::before{
 body.public-landing-mode:not(.theme-light) .public-phone-progress span{
   border-color: rgba(112,238,220,.22);
   background: #08252b;
+}
+
+.field-group .password-input-wrap input{
+  padding-right: 52px;
 }

@@ -444,6 +444,7 @@ function openAuthActionPanel(mode, context = {}) {
   }
 
   show(panel);
+  enhancePasswordFields(panel);
   window.requestAnimationFrame(() => {
     panel.querySelector("input")?.focus();
   });
@@ -5272,6 +5273,90 @@ function bindPublicLandingActions(root = document) {
   });
 }
 
+function ensureRegisterPasswordConfirmField() {
+  const form = qs("#registerForm");
+  const passwordInput = qs("#registerPassword");
+  if (!form || !passwordInput) return;
+
+  passwordInput.autocomplete = "new-password";
+  passwordInput.minLength = 6;
+
+  let confirmInput = qs("#registerPasswordConfirm");
+  if (!confirmInput) {
+    const group = document.createElement("div");
+    group.className = "field-group";
+    group.innerHTML = `
+      <label for="registerPasswordConfirm">Confirmar contrasena</label>
+      <input id="registerPasswordConfirm" type="password" placeholder="Repite tu contrasena" autocomplete="new-password" minlength="6" required />
+    `;
+    passwordInput.closest(".field-group")?.insertAdjacentElement("afterend", group);
+    confirmInput = qs("#registerPasswordConfirm");
+  }
+
+  if (!confirmInput) return;
+  confirmInput.autocomplete = "new-password";
+  confirmInput.minLength = 6;
+  confirmInput.required = true;
+
+  if (confirmInput.dataset.confirmBound === "1") return;
+  confirmInput.dataset.confirmBound = "1";
+
+  const syncValidity = () => {
+    const mismatch = Boolean(confirmInput.value) && passwordInput.value !== confirmInput.value;
+    confirmInput.setCustomValidity(mismatch ? "Las contrasenas no coinciden." : "");
+  };
+
+  passwordInput.addEventListener("input", syncValidity);
+  confirmInput.addEventListener("input", syncValidity);
+}
+
+function enhancePasswordFields(root = document) {
+  const scope = root?.querySelectorAll ? root : document;
+  Array.from(scope.querySelectorAll('input[type="password"], input[data-password-field="true"]')).forEach((input) => {
+    if (input.dataset.passwordEnhanced === "1") return;
+
+    input.dataset.passwordEnhanced = "1";
+    input.dataset.passwordField = "true";
+
+    const fieldGroup = input.closest(".field-group");
+    const parent = input.parentElement;
+    if (!parent) return;
+
+    fieldGroup?.classList.add("password-field-group");
+
+    let wrap = input.closest(".password-input-wrap");
+    if (!wrap) {
+      wrap = document.createElement("div");
+      wrap.className = "password-input-wrap";
+      parent.insertBefore(wrap, input);
+      wrap.appendChild(input);
+    }
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "password-toggle-btn";
+    toggle.setAttribute("aria-label", "Mostrar contrasena");
+    toggle.setAttribute("aria-pressed", "false");
+    toggle.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M2.5 12s3.45-6.2 9.5-6.2 9.5 6.2 9.5 6.2-3.45 6.2-9.5 6.2S2.5 12 2.5 12Z"></path>
+        <circle cx="12" cy="12" r="2.8"></circle>
+      </svg>
+    `;
+
+    toggle.addEventListener("click", () => {
+      const shouldShow = input.type === "password";
+      input.type = shouldShow ? "text" : "password";
+      toggle.classList.toggle("is-visible", shouldShow);
+      toggle.setAttribute("aria-label", shouldShow ? "Ocultar contrasena" : "Mostrar contrasena");
+      toggle.setAttribute("aria-pressed", String(shouldShow));
+      input.focus();
+    });
+
+    wrap.appendChild(toggle);
+  });
+}
+
 function attachAuthEvents() {
   qs("#loginForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -5306,13 +5391,22 @@ function attachAuthEvents() {
   qs("#registerForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const submitBtn = qs("#registerForm .btn");
+    const password = qs("#registerPassword")?.value || "";
+    const passwordConfirm = qs("#registerPasswordConfirm")?.value || "";
     clearInlineMessage("#registerMessage");
+
+    if (password !== passwordConfirm) {
+      setInlineMessage("#registerMessage", "Las contrasenas no coinciden. Revisalas antes de crear la cuenta.", "error");
+      qs("#registerPasswordConfirm")?.focus();
+      return;
+    }
+
     setButtonBusy(submitBtn, true, "Creando cuenta...");
     try {
       const data = await register(
         qs("#registerName").value,
         qs("#registerEmail").value,
-        qs("#registerPassword").value
+        password
       );
       const tone = data?.emailDeliveryFailed ? "warning" : "success";
       setInlineMessage("#registerMessage", buildAuthResponseHtml(data, data.message), tone, { html: true });
@@ -6491,6 +6585,9 @@ function ensureAuthEnhancements() {
   if (subtitles[0]) subtitles[0].textContent = "Accede con tu perfil de cliente, gestor, repartidor o cajera.";
   if (subtitles[1]) subtitles[1].textContent = "Las cuentas nuevas de cliente se activan primero desde el correo.";
 
+  ensureRegisterPasswordConfirmField();
+  enhancePasswordFields(authCard);
+
   const loginGroups = qs("#loginForm")?.querySelectorAll(".field-group") || [];
   if (loginGroups[0]) loginGroups[0].querySelector("label").textContent = "Correo electronico";
   if (loginGroups[1]) loginGroups[1].querySelector("label").textContent = "Contrasena";
@@ -6502,7 +6599,9 @@ function ensureAuthEnhancements() {
   const registerGroups = qs("#registerForm")?.querySelectorAll(".field-group") || [];
   if (registerGroups[1]) registerGroups[1].querySelector("label").textContent = "Correo electronico";
   if (registerGroups[2]) registerGroups[2].querySelector("label").textContent = "Contrasena";
+  if (registerGroups[3]) registerGroups[3].querySelector("label").textContent = "Confirmar contrasena";
   if (qs("#registerPassword")) qs("#registerPassword").placeholder = "Minimo 6 caracteres";
+  if (qs("#registerPasswordConfirm")) qs("#registerPasswordConfirm").placeholder = "Repite tu contrasena";
   if (qs("#registerForm .btn")) qs("#registerForm .btn").textContent = "Crear cuenta";
 
   const hint = authCard.querySelector(".auth-hint");
