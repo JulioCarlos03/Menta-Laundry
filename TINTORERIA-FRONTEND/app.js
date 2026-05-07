@@ -6450,12 +6450,7 @@ function ensureAuthEnhancements() {
   authView.querySelector(".auth-metrics")?.remove();
 
   authCard.classList.add("auth-card-premium");
-
-  let hero = authCard.querySelector(".auth-card-hero");
-  if (!hero) {
-    hero = document.createElement("div");
-    hero.className = "auth-card-hero";
-  }
+  authCard.querySelector(".auth-card-hero")?.remove();
 
   if (!authCard.querySelector(".auth-login-panel") || !authCard.querySelector(".auth-register-panel")) {
     const titles = authCard.querySelectorAll("h2");
@@ -6486,25 +6481,8 @@ function ensureAuthEnhancements() {
     });
 
     authCard.innerHTML = "";
-    authCard.append(hero, loginPanel, registerPanel);
-  } else if (authCard.firstElementChild !== hero) {
-    authCard.prepend(hero);
+    authCard.append(loginPanel, registerPanel);
   }
-
-  hero.innerHTML = `
-    <div class="auth-card-hero-row auth-card-hero-row-solo">
-      <div class="auth-card-hero-badge">${BUSINESS_PROFILE.name}</div>
-    </div>
-    <div class="auth-card-hero-title">Entra o agenda en segundos</div>
-    <div class="auth-card-hero-copy">
-      Tu panel guarda pedidos, pagos, facturas y seguimiento sin perder el toque humano de Menta.
-    </div>
-    <div class="auth-card-compact-meta">
-      <span>Correo verificado</span>
-      <span>Soporte por WhatsApp</span>
-      <span>Factura clara</span>
-    </div>
-  `;
 
   const loginPanel = authCard.querySelector(".auth-login-panel");
   const registerPanel = authCard.querySelector(".auth-register-panel");
@@ -6541,8 +6519,8 @@ function ensureAuthEnhancements() {
     </button>
   `;
 
-  if (hero.nextElementSibling !== modeSwitch) {
-    hero.insertAdjacentElement("afterend", modeSwitch);
+  if (authCard.firstElementChild !== modeSwitch) {
+    authCard.insertBefore(modeSwitch, authCard.firstElementChild);
   }
 
   if (loginPanel) {
