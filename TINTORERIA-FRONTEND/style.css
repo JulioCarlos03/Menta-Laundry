@@ -12203,12 +12203,12 @@ body.public-landing-mode .public-modern-kicker{
 }
 
 body.public-landing-mode .public-title{
-  max-width: 14ch;
+  max-width: 16ch;
   margin: 0;
   color: #0f3038;
-  font-size: clamp(2.7rem, 5vw, 4.85rem);
-  line-height: .93;
-  letter-spacing: -.065em;
+  font-size: clamp(2.35rem, 4.35vw, 4.25rem);
+  line-height: .98;
+  letter-spacing: -.055em;
   font-family: var(--font-heading);
   font-weight: 950;
 }
@@ -12565,9 +12565,10 @@ body.public-landing-mode .auth-panel::before{
   }
 
   body.public-landing-mode .public-title{
-    max-width: 13ch;
-    font-size: clamp(2.15rem, 9.6vw, 3.1rem);
-    line-height: .96;
+    max-width: 15ch;
+    font-size: clamp(1.9rem, 7vw, 2.45rem);
+    line-height: 1.02;
+    letter-spacing: -.045em;
   }
 
   body.public-landing-mode .auth-card-hero{
@@ -12703,8 +12704,10 @@ body.public-landing-mode .auth-panel::before{
   }
 
   body.public-landing-mode .public-title{
-    max-width: 12.5ch;
-    font-size: clamp(2.05rem, 10vw, 2.85rem);
+    max-width: 15.5ch;
+    font-size: clamp(1.7rem, 8.2vw, 2.12rem);
+    line-height: 1.04;
+    letter-spacing: -.035em;
   }
 }
 
