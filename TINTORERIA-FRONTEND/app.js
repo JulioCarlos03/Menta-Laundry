@@ -2592,7 +2592,6 @@ function ensureAppEntryOverlay() {
       <div class="app-entry-mark">
         <img src="${BUSINESS_ASSETS.logo}" alt="${BUSINESS_PROFILE.name}" />
       </div>
-      <div class="app-entry-kicker">Acceso privado</div>
       <div id="appEntryTitle" class="app-entry-title">Preparando tu panel</div>
       <div id="appEntryCopy" class="app-entry-copy">Estamos abriendo tu experiencia de ${BUSINESS_PROFILE.name}.</div>
       <div class="app-entry-progress"><span></span></div>
@@ -6439,6 +6438,7 @@ function ensureAuthEnhancements() {
             <small>${BUSINESS_PROFILE.email} | ${BUSINESS_PROFILE.address}</small>
           </div>
           <div class="public-contact-actions">
+            <a class="btn btn-small btn-outline" href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${encodeURIComponent(`Hola, quiero coordinar una recogida con ${BUSINESS_PROFILE.name}.`)}" target="_blank" rel="noreferrer">WhatsApp</a>
             <a class="btn btn-small" href="tel:+${BUSINESS_PHONE_DIGITS}">Llamar</a>
             <a class="btn btn-small btn-outline" href="mailto:${BUSINESS_PROFILE.email}">Correo</a>
           </div>
@@ -6472,7 +6472,6 @@ function ensureAuthEnhancements() {
       qs("#loginForm"),
       qs("#authQuickLinks"),
       qs("#authActionPanel"),
-      authCard.querySelector(".auth-hint"),
     ].forEach((node) => {
       if (node) loginPanel.appendChild(node);
     });
@@ -6493,8 +6492,7 @@ function ensureAuthEnhancements() {
   }
 
   hero.innerHTML = `
-    <div class="auth-card-hero-row">
-      <div class="auth-card-eyebrow">Acceso privado</div>
+    <div class="auth-card-hero-row auth-card-hero-row-solo">
       <div class="auth-card-hero-badge">${BUSINESS_PROFILE.name}</div>
     </div>
     <div class="auth-card-hero-title">Entra o agenda en segundos</div>
@@ -6604,22 +6602,7 @@ function ensureAuthEnhancements() {
   if (qs("#registerPasswordConfirm")) qs("#registerPasswordConfirm").placeholder = "Repite tu contrasena";
   if (qs("#registerForm .btn")) qs("#registerForm .btn").textContent = "Crear cuenta";
 
-  const hint = authCard.querySelector(".auth-hint");
-  if (hint) {
-    const supportMessage = `Hola, necesito ayuda con mi acceso en ${BUSINESS_PROFILE.name}.`;
-    hint.classList.add("auth-hint-support");
-    hint.innerHTML = `
-      <div class="auth-hint-title">Acceso asistido</div>
-      <div class="auth-support-copy">
-        Si necesitas acceso privado, verificacion o ayuda para entrar, te atendemos por WhatsApp, llamada o correo.
-      </div>
-      <div class="auth-support-actions">
-        <a class="auth-support-link" href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${encodeURIComponent(supportMessage)}" target="_blank" rel="noreferrer">WhatsApp</a>
-        <a class="auth-support-link" href="tel:+${BUSINESS_PHONE_DIGITS}">Llamar</a>
-        <a class="auth-support-link" href="mailto:${BUSINESS_PROFILE.email}">Correo</a>
-      </div>
-    `;
-  }
+  qsa(".auth-hint").forEach((hint) => hint.remove());
 
   bindAuthModeSwitch(modeSwitch);
   bindPublicLandingActions(authView);

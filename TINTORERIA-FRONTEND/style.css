@@ -11466,6 +11466,10 @@ body.theme-light .auth-card-hero{
   gap: 12px;
 }
 
+.auth-card-hero-row-solo{
+  justify-content: flex-end;
+}
+
 .auth-card-eyebrow,
 .auth-card-hero-badge,
 .auth-panel-kicker{
