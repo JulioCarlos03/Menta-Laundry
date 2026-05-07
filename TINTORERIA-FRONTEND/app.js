@@ -432,11 +432,11 @@ function openAuthActionPanel(mode, context = {}) {
     fields.innerHTML = `
       <div class="field-group">
         <label>Nueva contrasena</label>
-        <input id="authActionPassword" type="password" placeholder="Minimo 6 caracteres" required />
+        <input id="authActionPassword" type="password" placeholder="Minimo 6 caracteres" autocomplete="new-password" minlength="6" required />
       </div>
       <div class="field-group">
         <label>Confirmar contrasena</label>
-        <input id="authActionPasswordConfirm" type="password" placeholder="Repite la contrasena" required />
+        <input id="authActionPasswordConfirm" type="password" placeholder="Repite la contrasena" autocomplete="new-password" minlength="6" required />
       </div>
     `;
   } else {
