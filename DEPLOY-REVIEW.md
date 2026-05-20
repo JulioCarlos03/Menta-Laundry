@@ -30,8 +30,13 @@ Variables necesarias en Render:
 - `APP_BASE_URL=https://demo.mentalaundry.com/`
 - `CORS_ALLOWED_ORIGINS=http://127.0.0.1:5500,http://localhost:5500,https://mentalaundry.com,https://www.mentalaundry.com,https://demo.mentalaundry.com`
 - `CORS_ALLOWED_ORIGIN_SUFFIXES=.netlify.app,.onrender.com,.vercel.app`
+- `EMAIL_PROVIDER=brevo-api`
 - `EMAIL_FROM=Menta Laundry <admin@mentalaundry.com>`
 - `EMAIL_REPLY_TO=admin@mentalaundry.com`
+- `BREVO_API_KEY`
+
+SMTP queda como respaldo si tu servicio permite conexiones SMTP salientes:
+
 - `SMTP_HOST=smtp-relay.brevo.com`
 - `SMTP_PORT=587`
 - `SMTP_SECURE=false`

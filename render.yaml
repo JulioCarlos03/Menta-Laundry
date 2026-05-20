@@ -11,3 +11,7 @@ services:
         value: 20
       - key: USE_LEGACY_DEMO_SERVER
         value: "false"
+      - key: EMAIL_PROVIDER
+        value: brevo-api
+      - key: BREVO_API_KEY
+        sync: false

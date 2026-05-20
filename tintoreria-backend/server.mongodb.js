@@ -681,7 +681,11 @@ function isEmailDeliveryError(error) {
     text.includes("invalid login") ||
     text.includes("authentication failed") ||
     text.includes("eauth") ||
-    text.includes("smtp")
+    text.includes("smtp") ||
+    text.includes("brevo") ||
+    text.includes("api key") ||
+    text.includes("unauthorized") ||
+    text.includes("forbidden")
   );
 }
 
