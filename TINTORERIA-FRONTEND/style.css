@@ -123,6 +123,26 @@ body.theme-light .topbar{ background: rgba(246,247,251,.85); }
 .auth-card h2{ margin: 6px 0 8px; }
 .auth-subtitle{ color: var(--muted); font-size: 13px; line-height: 1.35; }
 .auth-form{ margin-top: 12px; display:flex; flex-direction:column; gap:10px; }
+.marketing-consent{
+  display:grid;
+  grid-template-columns:18px minmax(0,1fr);
+  gap:10px;
+  align-items:start;
+  padding:10px 0 2px;
+  color:var(--muted);
+  font-size:0.82rem;
+  line-height:1.45;
+  cursor:pointer;
+}
+.marketing-consent input{
+  width:18px;
+  height:18px;
+  margin:1px 0 0;
+  accent-color:#2f82b2;
+}
+.marketing-consent span{
+  min-width:0;
+}
 .auth-hint{
   margin-top: 12px;
   padding: 10px 12px;

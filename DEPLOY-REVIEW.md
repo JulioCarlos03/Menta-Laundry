@@ -34,6 +34,11 @@ Variables necesarias en Render:
 - `EMAIL_FROM=Menta Laundry <admin@mentalaundry.com>`
 - `EMAIL_REPLY_TO=admin@mentalaundry.com`
 - `BREVO_API_KEY`
+- `EMAIL_CAMPAIGNS_ENABLED=true`
+- `CAMPAIGN_PROMO_END_DATE=FECHA_VISIBLE_PARA_EL_CLIENTE`
+- `CAMPAIGN_PROMO_CODE=BIENVENIDO25`
+- `CAMPAIGN_WHATSAPP_DIGITS=18294487876`
+- `CAMPAIGN_REMINDER_DELAY_DAYS=6`
 
 SMTP queda como respaldo si tu servicio permite conexiones SMTP salientes:
 
@@ -48,6 +53,10 @@ Cuando Render termine, prueba:
 - `https://TU-SERVICIO.onrender.com/api/health`
 
 Debe devolver `emailMode`, `appBaseUrl` y `db`.
+
+La sección `emailCampaigns` debe mostrar `enabled: true` y `ready: true` antes de captar
+contactos para la promoción. Las campañas solo se envían a clientes que aceptaron
+recibir promociones al registrarse y verificaron su correo.
 
 ## 3. Publica el frontend en Netlify
 

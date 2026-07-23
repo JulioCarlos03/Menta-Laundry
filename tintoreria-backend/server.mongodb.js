@@ -13,6 +13,7 @@ const Order = require("./models/Order");
 const Notification = require("./models/Notification");
 const CashClose = require("./models/CashClose");
 const { sendEmail, getEmailMode } = require("./services/emailService");
+const createEmailCampaignService = require("./services/emailCampaignService");
 
 const app = express();
 
@@ -110,6 +111,12 @@ const BUSINESS_INFO = {
   footerMessage:
     "Gracias por confiar en Menta Laundry. Frescura, cuidado y seguimiento en cada prenda.",
 };
+const emailCampaigns = createEmailCampaignService({
+  User,
+  Order,
+  sendEmail,
+  businessInfo: BUSINESS_INFO,
+});
 
 const ALLOWED_ZONES = ["Distrito Nacional", "Sur", "Este", "Oeste"];
 const ALLOWED_PRICING_MODES = ["por_libra", "por_prendas", "mixto"];
@@ -171,6 +178,7 @@ function publicUser(user) {
   delete safe.emailVerificationExpiresAt;
   delete safe.passwordResetToken;
   delete safe.passwordResetExpiresAt;
+  delete safe.marketingCampaign;
   return safe;
 }
 
@@ -1742,6 +1750,7 @@ app.post(
   "/api/register",
   asyncHandler(async (req, res) => {
     const { name, email, password } = req.body || {};
+    const marketingOptIn = req.body?.marketingOptIn === true;
 
     if (!name || !email || !password) {
       return res.status(400).json({ message: "Faltan datos." });
@@ -1776,6 +1785,11 @@ app.post(
       emailVerificationExpiresAt: null,
       passwordResetToken: null,
       passwordResetExpiresAt: null,
+      createdAt: new Date(),
+      marketingCampaign: {
+        capturedAt: marketingOptIn ? new Date() : null,
+        unsubscribedAt: null,
+      },
     });
 
     let verification = null;
@@ -1858,6 +1872,7 @@ app.get(
     user.emailVerificationToken = null;
     user.emailVerificationExpiresAt = null;
     await user.save();
+    emailCampaigns.queueUser(user.id, "launch");
 
     res.json({
       message: "Correo verificado correctamente. Ya puedes iniciar sesion.",
@@ -2366,6 +2381,9 @@ app.put(
     await order.save();
     await sendOrderLifecycleNotification(order, normalizedStatus);
     await createOrderStatusNotifications(order, normalizedStatus);
+    if (normalizedStatus === "entregado al cliente") {
+      emailCampaigns.queueUser(order.userId, "referral");
+    }
 
     res.json({ message: "Estado actualizado", order: publicOrder(order, req.user) });
   })
@@ -2828,6 +2846,7 @@ app.get("/api/health", (_req, res) => {
     db: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
     dbName: mongoose.connection.name || null,
     emailMode: getEmailMode(),
+    emailCampaigns: emailCampaigns.getStatus(),
     appBaseUrl: APP_BASE_URL,
     corsOrigins: ALLOWED_ORIGINS,
     corsOriginSuffixes: ALLOWED_ORIGIN_SUFFIXES,
@@ -2850,6 +2869,7 @@ app.use((err, _req, res, _next) => {
 async function startServer() {
   await connectDB(MONGODB_URI);
   await seedDemoData({ User, Order });
+  emailCampaigns.startScheduler();
 
   app.listen(PORT, () => {
     console.log(`Servidor escuchando en http://localhost:${PORT}`);

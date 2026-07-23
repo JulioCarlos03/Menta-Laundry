@@ -1,5 +1,64 @@
 const mongoose = require("mongoose");
 
+const marketingCampaignSchema = new mongoose.Schema(
+  {
+    capturedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    unsubscribedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    launchSentAt: {
+      type: Date,
+      default: null,
+    },
+    launchClaimedAt: {
+      type: Date,
+      default: null,
+    },
+    reminderSentAt: {
+      type: Date,
+      default: null,
+    },
+    reminderClaimedAt: {
+      type: Date,
+      default: null,
+    },
+    referralSentAt: {
+      type: Date,
+      default: null,
+    },
+    referralClaimedAt: {
+      type: Date,
+      default: null,
+    },
+    lastAttemptAt: {
+      type: Date,
+      default: null,
+    },
+    lastEvent: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    lastMessageId: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    lastError: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema(
   {
     id: {
@@ -58,6 +117,15 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
       trim: true,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+      index: true,
+    },
+    marketingCampaign: {
+      type: marketingCampaignSchema,
+      default: () => ({}),
     },
   },
   {

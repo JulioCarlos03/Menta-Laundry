@@ -15,3 +15,13 @@ services:
         value: brevo-api
       - key: BREVO_API_KEY
         sync: false
+      - key: EMAIL_CAMPAIGNS_ENABLED
+        sync: false
+      - key: CAMPAIGN_PROMO_END_DATE
+        sync: false
+      - key: CAMPAIGN_PROMO_CODE
+        value: BIENVENIDO25
+      - key: CAMPAIGN_WHATSAPP_DIGITS
+        value: "18294487876"
+      - key: CAMPAIGN_REMINDER_DELAY_DAYS
+        value: "6"

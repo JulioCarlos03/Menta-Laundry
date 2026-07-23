@@ -2542,8 +2542,8 @@ async function login(email, password) {
   return currentUser;
 }
 
-async function register(name, email, password) {
-  return apiPost("/register", { name, email, password });
+async function register(name, email, password, marketingOptIn = false) {
+  return apiPost("/register", { name, email, password, marketingOptIn });
 }
 
 async function resendVerification(email) {
@@ -5405,7 +5405,8 @@ function attachAuthEvents() {
       const data = await register(
         qs("#registerName").value,
         qs("#registerEmail").value,
-        password
+        password,
+        Boolean(qs("#registerMarketingOptIn")?.checked)
       );
       const tone = data?.emailDeliveryFailed ? "warning" : "success";
       setInlineMessage("#registerMessage", buildAuthResponseHtml(data, data.message), tone, { html: true });

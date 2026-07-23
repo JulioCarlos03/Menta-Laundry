@@ -8,7 +8,7 @@
   <title>Menta Laundry</title>
   <link rel="icon" href="assets/menta-icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-  <link rel="stylesheet" href="style.css?v=20260501-17" />
+  <link rel="stylesheet" href="style.css?v=20260723-1" />
 </head>
 
 <body>
@@ -79,6 +79,11 @@
           <label>Confirmar contraseña</label>
           <input id="registerPasswordConfirm" type="password" placeholder="repite tu contraseña" autocomplete="new-password" minlength="6" required />
         </div>
+
+        <label class="marketing-consent" for="registerMarketingOptIn">
+          <input id="registerMarketingOptIn" type="checkbox" />
+          <span>Quiero recibir promociones, descuentos y beneficios por correo.</span>
+        </label>
 
         <button class="btn btn-primary" type="submit">Registrarme</button>
       </form>
@@ -579,6 +584,6 @@
 
   <script src="config.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="app.js?v=20260501-17"></script>
+  <script src="app.js?v=20260723-1"></script>
 </body>
 </html>
