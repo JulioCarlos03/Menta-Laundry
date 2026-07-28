@@ -70,22 +70,24 @@ const ORDER_WIZARD_STEPS = [
     key: "service",
     kicker: "Paso 1",
     label: "Servicio y prendas",
-    copy: "Elige el tipo de servicio, los paquetes principales y como se calculara el pedido.",
+    copy: "Elige el tipo de servicio, los paquetes principales y cómo se calculará el pedido.",
   },
   {
     key: "location",
     kicker: "Paso 2",
-    label: "Ubicacion y horario",
-    copy: "Define la direccion, confirma el GPS obligatorio y deja la agenda lista para la recogida.",
+    label: "Ubicación y horario",
+    copy: "Define la dirección, confirma el GPS obligatorio y deja la agenda lista para la recogida.",
   },
   {
     key: "review",
     kicker: "Paso 3",
-    label: "Resumen y confirmacion",
-    copy: "Revisa el estimado, agrega notas utiles y confirma la solicitud final.",
+    label: "Resumen y confirmación",
+    copy: "Revisa el estimado, agrega notas útiles y confirma la solicitud final.",
   },
 ];
 let currentOrderWizardStep = 0;
+let clientOrderComposerOpen = false;
+let clientOrderComposerTouched = false;
 
 /* ============================================================
    DOM HELPERS
@@ -838,23 +840,59 @@ function getClientTrackingStep(order) {
   return CLIENT_TRACKING_STEPS.find((step) => step.key === status) || CLIENT_TRACKING_STEPS[0];
 }
 
+const CLIENT_TRACKING_PHASES = [
+  {
+    key: "pickup",
+    startStatus: "pendiente",
+    label: "Recogida",
+    doneLabel: "Recogido",
+    icon: "check",
+  },
+  {
+    key: "care",
+    startStatus: "recibido en local",
+    label: "En cuidado",
+    icon: "wash",
+  },
+  {
+    key: "ready",
+    startStatus: "listo para entrega",
+    label: "Listo",
+    icon: "ready",
+  },
+  {
+    key: "delivery",
+    startStatus: "en camino a entregar",
+    label: "En camino",
+    doneLabel: "Entregado",
+    icon: "truck",
+  },
+];
+
 function renderClientTrackingExperience(order, options = {}) {
   if (!order) return "";
 
   const currentStatus = normalizeStatusValue(order.status);
-  const currentIndex = Math.max(
-    CLIENT_TRACKING_STEPS.findIndex((step) => step.key === currentStatus),
-    0
-  );
+  const currentIndex = CLIENT_TRACKING_STEPS.findIndex((step) => step.key === currentStatus);
+  if (currentIndex < 0) return "";
   const currentStep = CLIENT_TRACKING_STEPS[currentIndex] || CLIENT_TRACKING_STEPS[0];
   const compactClass = options.compact ? " client-tracking-compact" : "";
-  const progressWidth = CLIENT_TRACKING_STEPS.length > 1
-    ? (currentIndex / (CLIENT_TRACKING_STEPS.length - 1)) * 100
+  const phaseStarts = CLIENT_TRACKING_PHASES.map((phase) =>
+    Math.max(CLIENT_TRACKING_STEPS.findIndex((step) => step.key === phase.startStatus), 0)
+  );
+  const currentPhaseIndex = phaseStarts.reduce(
+    (resolvedIndex, startIndex, index) => (currentIndex >= startIndex ? index : resolvedIndex),
+    0
+  );
+  const progressWidth = CLIENT_TRACKING_PHASES.length > 1
+    ? (currentPhaseIndex / (CLIENT_TRACKING_PHASES.length - 1)) * 100
     : 0;
+  const pickupCompletedIndex = CLIENT_TRACKING_STEPS.findIndex((step) => step.key === "recogido al cliente");
+  const isDelivered = currentStatus === "entregado al cliente";
 
   return `
-    <section class="client-tracking${compactClass}" aria-label="Seguimiento animado del pedido">
-      <div class="client-tracking-scene client-tracking-scene-${escapeHtml(currentStep.scene)}">
+    <section class="client-tracking client-care-progress${compactClass}" aria-label="Seguimiento del pedido: ${escapeHtml(currentStep.title)}">
+      <div class="client-tracking-scene client-care-progress-scene client-tracking-scene-${escapeHtml(currentStep.scene)}">
         <div class="client-tracking-emoji" aria-hidden="true">${currentStep.emoji}</div>
         <div>
           <span>${escapeHtml(formatStatusLabel(currentStep.key))}</span>
@@ -866,17 +904,24 @@ function renderClientTrackingExperience(order, options = {}) {
         <div class="client-tracking-rail" aria-hidden="true">
           <span style="width:${progressWidth}%;"></span>
         </div>
-        <div class="client-tracking-steps">
-          ${CLIENT_TRACKING_STEPS.map((step, index) => {
+        <div class="client-tracking-steps client-care-phases" role="list" aria-label="Cuatro fases del servicio">
+          ${CLIENT_TRACKING_PHASES.map((phase, index) => {
+            const isDone = index < currentPhaseIndex || (isDelivered && index === currentPhaseIndex);
+            const isActive = index === currentPhaseIndex;
             const className = [
               "client-tracking-step",
-              index < currentIndex ? "is-done" : "",
-              index === currentIndex ? "is-active" : "",
+              "client-care-phase",
+              isDone ? "is-done" : "",
+              isActive ? "is-active" : "",
             ].filter(Boolean).join(" ");
+            const pickupIsDone = pickupCompletedIndex >= 0 && currentIndex >= pickupCompletedIndex;
+            const phaseLabel = phase.doneLabel && (isDone || (phase.key === "pickup" && pickupIsDone))
+              ? phase.doneLabel
+              : phase.label;
             return `
-              <div class="${className}">
-                <b>${renderTrackingStepIcon(step)}</b>
-                <span>${escapeHtml(step.label)}</span>
+              <div class="${className}" role="listitem" data-care-phase="${phase.key}" aria-current="${isActive ? "step" : "false"}">
+                <b>${renderTrackingStepIcon(phase)}</b>
+                <span class="client-care-phase-label">${escapeHtml(phaseLabel)}</span>
               </div>
             `;
           }).join("")}
@@ -1207,6 +1252,7 @@ function syncSessionChrome() {
   const bottomNav = qs(".bottom-nav");
   const notificationsBtn = qs("#internalNotificationsBtn");
   const notificationsPanel = qs("#internalNotificationsPanel");
+  document.body.dataset.role = currentUser?.role || "public";
   document.body.classList.toggle("public-landing-mode", !currentUser);
 
   if (currentUser) {
@@ -2433,6 +2479,8 @@ function setSession(user, token) {
 
 function clearSession() {
   currentUser = null;
+  clientOrderComposerOpen = false;
+  clientOrderComposerTouched = false;
   localStorage.removeItem(USER_STORAGE_KEY);
   localStorage.removeItem(TOKEN_STORAGE_KEY);
   stopAutoRefresh();
@@ -2890,6 +2938,7 @@ function isAutoRefreshPausedByInteraction() {
     "#confirmDialog",
     "#deliveryProofDialog",
     "#authActionPanel",
+    "details.client-care-meta[open]",
   ].some((selector) => isElementVisible(qs(selector)));
 
   if (openOverlay) return true;
@@ -2970,7 +3019,42 @@ function attachAutoRefreshEvents() {
 ============================================================ */
 function updateUIByRole() {
   const preferredScreen = resolveRoleScreen(getActiveScreenId());
-  qs("#welcomeTitle").textContent = `Hola, ${currentUser.name}`;
+  const welcomeTitle = qs("#welcomeTitle");
+  const welcomeBlock = qs(".welcome-block");
+  const firstName = String(currentUser?.name || "Cliente").trim().split(/\s+/)[0] || "Cliente";
+  if (welcomeTitle) {
+    welcomeTitle.textContent = currentUser.role === "cliente"
+      ? `Hola, ${firstName}`
+      : `Hola, ${currentUser.name}`;
+  }
+
+  let clientHeaderWhatsapp = qs("#clientHeaderWhatsapp");
+  if (currentUser.role === "cliente") {
+    if (!clientHeaderWhatsapp && welcomeBlock) {
+      clientHeaderWhatsapp = document.createElement("a");
+      clientHeaderWhatsapp.id = "clientHeaderWhatsapp";
+      clientHeaderWhatsapp.className = "client-header-whatsapp";
+      clientHeaderWhatsapp.target = "_blank";
+      clientHeaderWhatsapp.rel = "noopener noreferrer";
+      clientHeaderWhatsapp.innerHTML = `
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M20 11.6a8 8 0 0 1-11.8 7L4 20l1.4-4.1A8 8 0 1 1 20 11.6Z"></path>
+          <path d="M9 8.5c.4 2.3 2.1 4 4.5 4.8l1.2-1.1 2 .9c.2.1.3.4.2.7-.4 1.3-1.6 2-3 1.8-3.6-.6-6.8-3.8-7.4-7.4-.2-1.4.5-2.6 1.8-3 .3-.1.6 0 .7.2l.9 2-1 1.1Z"></path>
+        </svg>
+        <span>WhatsApp</span>
+      `;
+      const welcomeSide = welcomeBlock.querySelector(".welcome-side");
+      welcomeBlock.insertBefore(clientHeaderWhatsapp, welcomeSide || null);
+    }
+    if (clientHeaderWhatsapp) {
+      const message = encodeURIComponent(`Hola, necesito ayuda con mi cuenta en ${BUSINESS_PROFILE.name}.`);
+      clientHeaderWhatsapp.href = `https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${message}`;
+      clientHeaderWhatsapp.setAttribute("aria-label", `Contactar a ${BUSINESS_PROFILE.name} por WhatsApp`);
+    }
+  } else {
+    clientHeaderWhatsapp?.remove();
+  }
+
   const roleLabel = qs("#roleLabel");
   if (roleLabel) roleLabel.textContent = formatRoleLabel(currentUser.role);
 
@@ -3887,7 +3971,21 @@ function renderClientHome() {
   const careTier = getClientCareTier(my.length);
   const greetingName = String(currentUser?.name || "Cliente").trim().split(/\s+/)[0] || "Cliente";
   const focusZone = active?.zone || recentOrder?.zone || "Distrito Nacional";
-  const supportMessage = encodeURIComponent(`Hola, necesito ayuda con mi cuenta en ${BUSINESS_PROFILE.name}.`);
+  const supportTopic = active ? `mi pedido #${active.id}` : "mi cuenta";
+  const supportMessage = encodeURIComponent(`Hola, necesito ayuda con ${supportTopic} en ${BUSINESS_PROFILE.name}.`);
+  const composerShouldOpen = clientOrderComposerTouched ? clientOrderComposerOpen : !active;
+  syncClientOrderComposerState(composerShouldOpen);
+  const careSymbolsMarkup = [
+    { icon: "receipt", label: "Revisión inicial" },
+    { icon: "wash", label: "Cuidado según prenda" },
+    { icon: "ready", label: "Secado y acabado" },
+    { icon: "check", label: "Control final" },
+  ].map((item) => `
+    <div class="client-care-symbol" role="listitem">
+      <span class="client-care-symbol-mark" aria-hidden="true">${renderTrackingStepIcon(item)}</span>
+      <span>${escapeHtml(item.label)}</span>
+    </div>
+  `).join("");
 
   if (!executiveCard && (homeLayout || quickOrderCard)) {
     executiveCard = document.createElement("div");
@@ -3917,7 +4015,28 @@ function renderClientHome() {
     } else if (quickOrderCard) {
       quickOrderCard.insertAdjacentElement("beforebegin", communicationCard);
     }
-    communicationCard.innerHTML = renderClientCommunicationPanel(stats);
+    const latestHelpMovement = active
+      ? getOrderLatestMovementText(active)
+      : "Tu actividad aparecerá aquí después de la primera solicitud.";
+    communicationCard.innerHTML = `
+      <section class="client-care-help" aria-labelledby="clientCareHelpTitle">
+        <div class="client-care-help-copy">
+          <div class="estimate-kicker">Atención directa</div>
+          <h3 id="clientCareHelpTitle">¿Necesitas ayuda con ${active ? "tu pedido" : "tu cuenta"}?</h3>
+          <p>Escríbenos por WhatsApp o utiliza el canal que prefieras. El equipo puede revisar la agenda, la ruta y los detalles registrados.</p>
+          <div class="client-care-help-meta">
+            <span>${currentUser?.emailVerified ? "Correo de avisos activo" : "Correo de avisos pendiente"}</span>
+            <span>${escapeHtml(latestHelpMovement)}</span>
+          </div>
+        </div>
+        <div class="communication-actions client-care-help-actions">
+          <a class="btn btn-small" href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${supportMessage}" target="_blank" rel="noreferrer">WhatsApp</a>
+          <a class="btn btn-small btn-outline" href="tel:+${BUSINESS_PHONE_DIGITS}">Llamar</a>
+          <a class="btn btn-small btn-outline" href="mailto:${BUSINESS_PROFILE.email}">Correo</a>
+          <button class="btn btn-small btn-outline" type="button" data-go-communication-activity="1">Ver actividad</button>
+        </div>
+      </section>
+    `;
   }
 
   if (nextOrderCard) {
@@ -3927,45 +4046,48 @@ function renderClientHome() {
 
     if (!active) {
       nextOrderCard.innerHTML = `
-        <div class="home-focus-shell home-focus-shell-empty">
-          <div class="home-focus-top">
-            <div>
-              <div class="estimate-kicker">Private care</div>
-              <div class="home-focus-title">Tu siguiente servicio aun no ha comenzado</div>
-              <div class="card-secondary">Dejamos este espacio listo para que tu pedido activo se vea como una experiencia premium: clara, elegante y facil de seguir.</div>
+        <div class="home-focus-shell home-focus-shell-empty client-care-ticket client-care-ticket-empty">
+          <section class="client-care-main">
+            <div class="client-care-head">
+              <div class="client-care-copy">
+                <div class="estimate-kicker client-care-kicker">Ficha de cuidado / Agenda abierta</div>
+                <div class="home-focus-title client-care-title">Tu próximo cuidado empieza aquí</div>
+                <div class="card-secondary">Cuando agendes una recogida, este ticket mostrará el estado, la agenda y cada movimiento del servicio.</div>
+              </div>
             </div>
-            <div class="estimate-badge">Agenda abierta</div>
-          </div>
-          <div class="home-focus-grid">
-            <div class="home-focus-item">
-              <span>Estado</span>
-              <strong>Sin pedidos activos</strong>
-              <small>Tu primera solicitud aparecera aqui con estatus, monto y seguimiento.</small>
+            <div class="client-care-notice">
+              <span aria-hidden="true">✦</span>
+              <p>Elige el servicio, confirma la ubicación y revisa todo antes de enviar la solicitud.</p>
             </div>
-            <div class="home-focus-item">
-              <span>Horario</span>
+          </section>
+          <aside class="client-care-details">
+            <div class="client-care-agenda">
+              <span>Horario de atención</span>
               <strong>${escapeHtml(BUSINESS_PROFILE.schedule)}</strong>
-              <small>Recepcion, lavado y entrega listos para coordinar cuando quieras.</small>
+              <small>Recogida y entrega coordinadas por zona.</small>
             </div>
-            <div class="home-focus-item">
-              <span>Cuenta</span>
-              <strong>${currentUser?.emailVerified ? "Correo verificado" : "Cuenta lista"}</strong>
-              <small>${escapeHtml(careTier)} con una portada pensada para clientes reales.</small>
+            <div class="client-care-symbols" role="list" aria-label="Proceso de cuidado Menta">
+              ${careSymbolsMarkup}
             </div>
-          </div>
-          <div class="home-focus-note">
-            <strong>Tu portada se vera mucho mejor desde el primer pedido.</strong>
-            <span>Agenda la recogida, combina paquetes y deja que el seguimiento quede visible desde el inicio.</span>
-          </div>
-          <div class="brand-pill-row">
-            <span class="estimate-tag">Recogida programada</span>
-            <span class="estimate-tag">Seguimiento elegante</span>
-            <span class="estimate-tag">Factura clara</span>
-          </div>
-          <div class="client-support-row home-focus-actions">
-            <button class="btn btn-small" type="button" id="homeCreateServiceBtn">Solicitar servicio</button>
-            <button class="btn btn-small btn-outline" type="button" id="homeGoActivityBtn">Ver actividad</button>
-            <button class="btn btn-small btn-outline" type="button" id="homeGoAccountBtn">Cuenta</button>
+          </aside>
+          <div class="client-care-meta">
+            <div class="home-focus-grid">
+              <div class="home-focus-item">
+                <span>Estado</span>
+                <strong>Sin pedidos activos</strong>
+                <small>Tu primera solicitud aparecerá aquí con estatus, monto y seguimiento.</small>
+              </div>
+              <div class="home-focus-item">
+                <span>Cuenta</span>
+                <strong>${currentUser?.emailVerified ? "Correo verificado" : "Cuenta lista"}</strong>
+                <small>${escapeHtml(careTier)} con historial, factura y soporte en un solo lugar.</small>
+              </div>
+            </div>
+            <div class="client-support-row home-focus-actions client-care-actions">
+              <button class="btn btn-small" type="button" id="homeCreateServiceBtn">Solicitar servicio</button>
+              <button class="btn btn-small btn-outline" type="button" id="homeGoActivityBtn">Ver actividad</button>
+              <button class="btn btn-small btn-outline" type="button" id="homeGoAccountBtn">Cuenta</button>
+            </div>
           </div>
         </div>
       `;
@@ -3979,59 +4101,86 @@ function renderClientHome() {
           : "Total por confirmar"
         : money(activeBreakdown.total);
       const scheduleLabel = [fmtDate(active.date), fmtTime(active.time)].filter(Boolean).join(" | ");
-      const routeLabel = active.repartidorName || "Asignacion pendiente";
+      const routeLabel = active.repartidorName || "Asignación pendiente";
       const locationLabel = activeLocation
-        ? `Ubicacion valida para ${activeLocation.inferredZone || active.zone || "tu zona"}`
-        : "Sin punto GPS. Se usa la direccion registrada.";
+        ? `Ubicación válida para ${activeLocation.inferredZone || active.zone || "tu zona"}`
+        : "Sin punto GPS. Se usa la dirección registrada.";
+      const trackingStep = getClientTrackingStep(active);
+      const ticketOrderCode = `ML-${String(active.id || "--").padStart(4, "0")}`;
 
       nextOrderCard.innerHTML = `
-        <div class="home-focus-shell">
-          <div class="home-focus-top">
-            <div>
-              <div class="estimate-kicker">Pedido activo</div>
-              <div class="home-focus-title">${escapeHtml(getOrderPrimaryPackLabel(active))}</div>
-              <div class="card-secondary">${escapeHtml(active.serviceType || "Recogida coordinada")} | ${escapeHtml(describePricingMode(active.pricingMode))}</div>
+        <div class="home-focus-shell client-care-ticket">
+          <section class="client-care-main">
+            <div class="client-care-head">
+              <div class="client-care-copy">
+                <div class="estimate-kicker client-care-kicker">Estado actual</div>
+                <div class="home-focus-title client-care-title">${escapeHtml(trackingStep.title)}</div>
+                <div class="card-secondary">${escapeHtml(getOrderPrimaryPackLabel(active))} | ${escapeHtml(active.serviceType || "Recogida coordinada")}</div>
+              </div>
+              <div class="home-focus-status">${renderStatusBadge(active.status)}</div>
             </div>
-            <div class="home-focus-status">
-              ${renderStatusBadge(active.status)}
+            ${renderClientTrackingExperience(active)}
+            <div class="client-care-notice">
+              <span aria-hidden="true">✦</span>
+              <p>Revisamos cada prenda y ajustamos el proceso a su etiqueta, tejido y servicio solicitado.</p>
             </div>
-          </div>
-          <div class="signal-chip-row">${renderSignalChips(active)}</div>
-          ${renderClientTrackingExperience(active)}
-          <div class="home-focus-grid">
-            <div class="home-focus-item">
-              <span>Agenda</span>
+          </section>
+
+          <aside class="client-care-details">
+            <div class="client-care-order-meta">
+              <span>Pedido</span>
+              <strong class="client-care-order-code">${escapeHtml(ticketOrderCode)}</strong>
+            </div>
+            <div class="client-care-agenda">
+              <span>Agenda del servicio</span>
               <strong>${escapeHtml(scheduleLabel || "Pendiente")}</strong>
-              <small>${escapeHtml(getOrderLatestMovementText(active))}</small>
+              <small>${escapeHtml(active.zone || focusZone)}</small>
             </div>
-            <div class="home-focus-item">
-              <span>Monto estimado</span>
-              <strong>${escapeHtml(amountLabel)}</strong>
-              <small>${escapeHtml(activeBreakdown.weightPending ? "El total final se confirma al pesar o revisar." : "Incluye cargos estimados visibles desde el inicio.")}</small>
+            <div class="client-care-symbols" role="list" aria-label="Proceso de cuidado Menta">
+              ${careSymbolsMarkup}
             </div>
-            <div class="home-focus-item">
-              <span>Ruta</span>
-              <strong>${escapeHtml(routeLabel)}</strong>
-              <small>${escapeHtml(locationLabel)}</small>
+          </aside>
+
+          <details class="client-care-meta">
+            <summary>Ver detalles, monto y acciones</summary>
+            <div class="client-care-meta-body">
+              <div class="signal-chip-row">${renderSignalChips(active)}</div>
+              <div class="home-focus-grid">
+                <div class="home-focus-item">
+                  <span>Agenda</span>
+                  <strong>${escapeHtml(scheduleLabel || "Pendiente")}</strong>
+                  <small>${escapeHtml(getOrderLatestMovementText(active))}</small>
+                </div>
+                <div class="home-focus-item">
+                  <span>Monto estimado</span>
+                  <strong>${escapeHtml(amountLabel)}</strong>
+                  <small>${escapeHtml(activeBreakdown.weightPending ? "El total final se confirma al pesar o revisar." : "Incluye cargos estimados visibles desde el inicio.")}</small>
+                </div>
+                <div class="home-focus-item">
+                  <span>Ruta</span>
+                  <strong>${escapeHtml(routeLabel)}</strong>
+                  <small>${escapeHtml(locationLabel)}</small>
+                </div>
+              </div>
+              ${renderClientPaymentReport(active, { compact: true })}
+              <div class="home-focus-note">
+                <strong>${escapeHtml(active.address || "Dirección pendiente")}</strong>
+                <span>${escapeHtml(active.zone || focusZone)} | ${escapeHtml(activeLocation ? "Seguimiento reforzado con GPS." : "Seguimiento apoyado por la dirección escrita.")}</span>
+              </div>
+              <div class="brand-pill-row client-care-tags">
+                ${(packs.length ? packs : [active.pack || "Servicio general"]).map((pack) => `<span class="estimate-tag">${escapeHtml(pack)}</span>`).join("")}
+                <span class="estimate-tag">${escapeHtml(describePricingMode(active.pricingMode))}</span>
+                <span class="estimate-tag ${activeLocation ? "" : "estimate-tag-muted"}">${activeLocation ? "GPS verificado" : "Dirección manual"}</span>
+              </div>
+              <div class="client-care-codes">${renderDeliveryCodeCard(active)}</div>
+              <div class="client-support-row home-focus-actions client-care-actions">
+                <button class="btn btn-small" type="button" data-factura="${active.id}">Factura</button>
+                <button class="btn btn-small btn-outline" type="button" data-detalle="${active.id}">Detalle</button>
+                <button class="btn btn-small btn-outline" type="button" id="homeGoActivityBtn">Seguimiento</button>
+                ${canCancel(active) ? `<button class="btn btn-small btn-outline" type="button" data-cancel-home="${active.id}">Cancelar (5 min)</button>` : `<button class="btn btn-small btn-outline" type="button" id="homeGoAccountBtn">Cuenta</button>`}
+              </div>
             </div>
-          </div>
-          ${renderClientPaymentReport(active, { compact: true })}
-          <div class="home-focus-note">
-            <strong>${escapeHtml(active.address || "Direccion pendiente")}</strong>
-            <span>${escapeHtml(active.zone || focusZone)} | ${escapeHtml(activeLocation ? "Seguimiento reforzado con GPS." : "Seguimiento apoyado por la direccion escrita.")}</span>
-          </div>
-          <div class="brand-pill-row">
-            ${(packs.length ? packs : [active.pack || "Servicio general"]).map((pack) => `<span class="estimate-tag">${escapeHtml(pack)}</span>`).join("")}
-            <span class="estimate-tag">${escapeHtml(active.zone || focusZone)}</span>
-            <span class="estimate-tag ${activeLocation ? "" : "estimate-tag-muted"}">${activeLocation ? "GPS verificado" : "Direccion manual"}</span>
-          </div>
-          ${renderDeliveryCodeCard(active)}
-          <div class="client-support-row home-focus-actions">
-            <button class="btn btn-small" type="button" data-factura="${active.id}">Factura</button>
-            <button class="btn btn-small btn-outline" type="button" data-detalle="${active.id}">Detalle</button>
-            <button class="btn btn-small btn-outline" type="button" id="homeGoActivityBtn">Seguimiento</button>
-            ${canCancel(active) ? `<button class="btn btn-small btn-outline" type="button" data-cancel-home="${active.id}">Cancelar (5 min)</button>` : `<button class="btn btn-small btn-outline" type="button" id="homeGoAccountBtn">Cuenta</button>`}
-          </div>
+          </details>
         </div>
       `;
     }
@@ -4045,8 +4194,8 @@ function renderClientHome() {
     serviceCard.innerHTML = `
       <div class="estimate-top">
         <div>
-          <div class="estimate-kicker">Concierge ${escapeHtml(BUSINESS_PROFILE.name)}</div>
-          <div class="estimate-title">${escapeHtml(careTier)} con una recepcion mas elegante y mejor organizada</div>
+          <div class="estimate-kicker">Ficha de servicio</div>
+          <div class="estimate-title">${escapeHtml(careTier)} y tus preferencias de cuidado</div>
         </div>
         ${getClientVerificationBadgeMarkup()}
       </div>
@@ -4068,7 +4217,7 @@ function renderClientHome() {
         </div>
       </div>
       <div class="attention-board">
-        <div class="detail-section-title">Atencion signature</div>
+        <div class="detail-section-title">Detalles de tu cuenta</div>
         <div class="attention-list">
           <div class="attention-item">
             <div>
@@ -4106,11 +4255,11 @@ function renderClientHome() {
       ? `${fmtDate(recentOrder.date)} | ${escapeHtml(recentOrder.zone || "--")}`
       : "Aun sin historial";
     const heroTitle = active
-      ? `${greetingName}, tu pedido ya luce mas claro, sobrio y premium`
-      : `${greetingName}, tu cuenta esta lista para una recepcion mas elegante`;
+      ? `${greetingName}, tu pedido sigue su recorrido`
+      : `${greetingName}, tu cuenta esta lista`;
     const heroNarrative = active
-      ? "Desde esta portada sigues agenda, ruta, detalle y factura con una lectura mas limpia para revisar tu servicio sin ruido."
-      : "Preparamos un lobby privado para que pidas, confirmes y sigas cada servicio con una presencia mas refinada y confiable.";
+      ? "Revisa la agenda, el estado, la ruta y la factura desde el mismo ticket de cuidado."
+      : "Agenda una recogida y sigue cada servicio desde que recibimos las prendas hasta su entrega.";
     const heroStatusLabel = active ? "Servicio en curso" : "Agenda abierta";
     const heroSupportLabel = currentUser?.emailVerified
       ? "Confirmaciones activas para avisos, cambios y entregas."
@@ -4125,7 +4274,7 @@ function renderClientHome() {
     executiveCard.innerHTML = `
       <div class="client-hero-banner home-hero-premium">
         <div class="client-hero-copy">
-          <div class="estimate-kicker">Client lounge by ${escapeHtml(BUSINESS_PROFILE.name)}</div>
+          <div class="estimate-kicker">Cuenta Menta / Cliente</div>
           <div class="client-hero-title">${escapeHtml(heroTitle)}</div>
           <div class="client-hero-text">${escapeHtml(heroNarrative)}</div>
           <div class="client-hero-pill-row">
@@ -4212,8 +4361,7 @@ function renderClientHome() {
 
     qs("#clientGoActivityBtn")?.addEventListener("click", () => showScreen("screenActivity"));
     qs("#clientFocusOrderBtn")?.addEventListener("click", () => {
-      quickOrderCard?.scrollIntoView({ behavior: "smooth", block: "start" });
-      qs("#homeZone")?.focus();
+      openClientOrderComposer({ step: 0, focusSelector: "#homePickupType" });
     });
     qs("#clientGoAccountBtn")?.addEventListener("click", () => showScreen("screenAccount"));
   }
@@ -4228,8 +4376,7 @@ function renderClientHome() {
     btn.addEventListener("click", () => showScreen("screenActivity"));
   });
   qs("#homeCreateServiceBtn")?.addEventListener("click", () => {
-    quickOrderCard?.scrollIntoView({ behavior: "smooth", block: "start" });
-    qs("#homeZone")?.focus();
+    openClientOrderComposer({ step: 0, focusSelector: "#homePickupType" });
   });
   Array.from((nextOrderCard || document).querySelectorAll?.("[data-cancel-home]") || []).forEach((btn) => {
     if (btn.dataset.cancelBound === "1") return;
@@ -4695,8 +4842,7 @@ function repeatClientService(orderId) {
     syncPricingModeUI();
     renderHomeLocationStatus();
     updateOrderEstimatePreview();
-    qs("#quickOrderCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    qs("#homeDate")?.focus();
+    openClientOrderComposer({ step: 1, focusSelector: "#homeDate" });
     showSuccess("Servicio preparado para repetir. Solo elige fecha, hora y confirma tu GPS.");
   }, 80);
 }
@@ -5267,9 +5413,47 @@ function bindPublicLandingActions(root = document) {
     button.addEventListener("click", () => {
       const target = button.dataset.publicAuthTarget || "login";
       setAuthMode(target, { focusField: true });
-      qs("#authView .auth-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const authCard = qs("#authView .auth-card");
+      const mobileDock = authCard?.closest("#publicAuthDock");
+      if (mobileDock) {
+        mobileDock.hidden = false;
+        mobileDock.classList.add("is-open");
+      }
+      authCard?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
+}
+
+function syncPublicAuthPlacement(authView = qs("#authView"), authCard = authView?.querySelector(".auth-card")) {
+  const shell = authView?.querySelector(".auth-shell-public");
+  const mobileDock = authView?.querySelector("#publicAuthDock");
+  if (!authView || !authCard || !shell || !mobileDock) return;
+
+  const useMobileDock = window.matchMedia("(max-width: 940px)").matches;
+  const destination = useMobileDock ? mobileDock : shell;
+  if (authCard.parentElement !== destination) destination.appendChild(authCard);
+
+  if (useMobileDock) {
+    mobileDock.hidden = !mobileDock.classList.contains("is-open");
+  } else {
+    mobileDock.hidden = true;
+  }
+}
+
+function bindPublicAuthPlacement(authView, authCard) {
+  if (!authView || !authCard) return;
+
+  syncPublicAuthPlacement(authView, authCard);
+  if (authView.dataset.publicAuthPlacementBound === "1") return;
+
+  authView.dataset.publicAuthPlacementBound = "1";
+  const mediaQuery = window.matchMedia("(max-width: 940px)");
+  const syncPlacement = () => syncPublicAuthPlacement();
+  if (typeof mediaQuery.addEventListener === "function") {
+    mediaQuery.addEventListener("change", syncPlacement);
+  } else {
+    mediaQuery.addListener(syncPlacement);
+  }
 }
 
 function ensureRegisterPasswordConfirmField() {
@@ -6041,6 +6225,34 @@ function renderOrderWizardReview() {
   `;
 }
 
+function syncClientOrderComposerState(open = clientOrderComposerOpen) {
+  const quickOrderCard = qs("#quickOrderCard");
+  const toggle = qs("#clientOrderComposerToggle");
+  if (!quickOrderCard) return;
+
+  const isOpen = Boolean(open);
+  quickOrderCard.classList.toggle("client-order-collapsed", !isOpen);
+  quickOrderCard.classList.toggle("client-order-expanded", isOpen);
+
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    const label = toggle.querySelector("[data-composer-toggle-label]");
+    if (label) label.textContent = isOpen ? "Cerrar agenda" : "Agendar otra recogida";
+  }
+}
+
+function openClientOrderComposer({ step = currentOrderWizardStep, focusSelector = "#homePickupType" } = {}) {
+  clientOrderComposerOpen = true;
+  clientOrderComposerTouched = true;
+  syncClientOrderComposerState(true);
+  goToOrderWizardStep(step, { force: true, skipScroll: true, skipFocus: true });
+
+  window.requestAnimationFrame(() => {
+    qs("#quickOrderCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.setTimeout(() => qs(focusSelector)?.focus(), 220);
+  });
+}
+
 function renderOrderWizardState() {
   const form = qs("#quickOrderForm");
   if (!form || !qs("#orderWizardIntro")) return;
@@ -6062,7 +6274,7 @@ function renderOrderWizardState() {
     : money(breakdown.total);
   const stepCaptions = [
     packs.length ? `${packs.length} paquete${packs.length === 1 ? "" : "s"} listo${packs.length === 1 ? "" : "s"}` : "Elige tu servicio",
-    address ? `${zone} | ${homeLocation ? "GPS listo" : "GPS pendiente"} | ${date ? fmtDate(date) : "Agenda pendiente"}` : "Agrega direccion, GPS y horario",
+    address ? `${zone} | ${homeLocation ? "GPS listo" : "GPS pendiente"} | ${date ? fmtDate(date) : "Agenda pendiente"}` : "Agrega dirección, GPS y horario",
     breakdown.lines.length ? totalText : "Revisa antes de confirmar",
   ];
 
@@ -6169,6 +6381,13 @@ function ensureClientOrderWizard() {
         </button>
       `).join("")}
     </div>
+    <button id="clientOrderComposerToggle" class="btn client-order-composer-toggle" type="button" aria-controls="orderWizardPanels">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2Z"></path>
+        <path d="M3 9h18M8 2v4M16 2v4M16.5 13v6M13.5 16h6"></path>
+      </svg>
+      <span data-composer-toggle-label>Agendar otra recogida</span>
+    </button>
   `;
 
   let panelsHost = qs("#orderWizardPanels");
@@ -6276,10 +6495,30 @@ function ensureClientOrderWizard() {
     if (button.dataset.wizardBound === "1") return;
     button.dataset.wizardBound = "1";
     button.addEventListener("click", () => {
+      clientOrderComposerOpen = true;
+      clientOrderComposerTouched = true;
+      syncClientOrderComposerState(true);
       const target = Number(button.dataset.orderStepTarget || 0);
       goToOrderWizardStep(target, { skipFocus: target === currentOrderWizardStep });
     });
   });
+
+  const composerToggle = qs("#clientOrderComposerToggle");
+  if (composerToggle && composerToggle.dataset.composerBound !== "1") {
+    composerToggle.dataset.composerBound = "1";
+    composerToggle.addEventListener("click", () => {
+      const quickOrderCard = qs("#quickOrderCard");
+      clientOrderComposerOpen = quickOrderCard?.classList.contains("client-order-collapsed") ?? true;
+      clientOrderComposerTouched = true;
+      syncClientOrderComposerState(clientOrderComposerOpen);
+      if (clientOrderComposerOpen) {
+        qs(`.order-step-panel[data-step="${currentOrderWizardStep}"]`)?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      }
+    });
+  }
 
   const prevBtn = qs("#orderWizardPrevBtn");
   if (prevBtn && prevBtn.dataset.wizardBound !== "1") {
@@ -6294,6 +6533,10 @@ function ensureClientOrderWizard() {
   }
 
   renderOrderWizardState();
+  const quickOrderCard = qs("#quickOrderCard");
+  syncClientOrderComposerState(
+    quickOrderCard ? !quickOrderCard.classList.contains("client-order-collapsed") : clientOrderComposerOpen
+  );
 }
 
 function ensureAuthEnhancements() {
@@ -6318,130 +6561,190 @@ function ensureAuthEnhancements() {
   const showcase = authView.querySelector(".auth-showcase");
   if (showcase) {
     showcase.innerHTML = `
-      <div class="public-landing">
-        <nav class="public-landing-nav" aria-label="Navegacion publica">
-          <a href="#publicServices">Cuidado</a>
-          <a href="#publicProcess">Como funciona</a>
-          <a href="#publicContact">Contacto</a>
+      <div class="public-landing ticket-public">
+        <nav class="public-landing-nav ticket-public-nav" aria-label="Informacion principal de Menta Laundry">
+          <a class="ticket-public-brand" href="#ticketPublicTop" aria-label="Ir al inicio de ${BUSINESS_PROFILE.name}">
+            <img src="${BUSINESS_ASSETS.logo}" alt="${BUSINESS_PROFILE.name}" />
+          </a>
+          <div class="ticket-public-nav-details">
+            <a href="#publicContact">
+              <span>Zona</span>
+              <strong>Santo Domingo</strong>
+            </a>
+            <a href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${encodeURIComponent(`Hola, quiero informacion sobre ${BUSINESS_PROFILE.name}.`)}" target="_blank" rel="noreferrer">
+              <span>WhatsApp</span>
+              <strong>${BUSINESS_PROFILE.phone}</strong>
+            </a>
+            <a href="#publicProcess">
+              <span>Horario</span>
+              <strong>8:00 AM — 10:00 PM</strong>
+            </a>
+            <button class="ticket-public-access" type="button" data-public-auth-target="login">Ya tengo cuenta</button>
+          </div>
         </nav>
 
-        <section class="public-hero">
-          <div class="public-hero-main">
-            <div class="auth-showcase-brand public-brand-card">
-              <div class="auth-showcase-mark">
-                <img src="${BUSINESS_ASSETS.logo}" alt="${BUSINESS_PROFILE.name}" />
-              </div>
-              <div class="auth-showcase-brand-copy">
-                <span>${BUSINESS_PROFILE.name}</span>
-                <strong>${BUSINESS_PROFILE.tagline}</strong>
-                <small>${BUSINESS_PROFILE.phone} | ${BUSINESS_PROFILE.address}</small>
-              </div>
+        <section id="ticketPublicTop" class="public-hero ticket-public-hero">
+          <div class="public-hero-main ticket-public-copy">
+            <div class="ticket-public-edition" aria-label="Servicio de cuidado textil">
+              <span>Servicio a domicilio</span>
+              <span>Cuidado con seguimiento</span>
             </div>
-
             <div class="public-hero-copy">
-              <div class="public-modern-kicker">Lavanderia premium a domicilio</div>
-              <h1 class="auth-title public-title">Tu ropa lista, fresca y rastreable desde una sola cuenta.</h1>
+              <div class="public-modern-kicker ticket-public-kicker">Cuidado textil en Santo Domingo</div>
+              <h1 class="auth-title public-title">Tu ropa,<br /><em>cuidada de verdad.</em></h1>
+              <div class="ticket-public-rule" aria-hidden="true"></div>
+              <p class="ticket-public-promise">Recogemos. Cuidamos. Entregamos.</p>
               <p class="auth-copy public-copy">
-                Agenda recogida, confirma ubicacion, mira el avance del pedido y reporta pagos sin llamadas eternas.
-                Una experiencia mas moderna para cuidar prendas reales.
+                Coordinamos la recogida, tratamos cada prenda según sus necesidades y te mostramos
+                el avance del pedido hasta que vuelve a tus manos.
               </p>
-              <div class="public-hero-actions">
-                <button class="btn btn-primary" type="button" data-public-auth-target="register">Agendar mi primera recogida</button>
-                <button class="btn btn-outline" type="button" data-public-auth-target="login">Ya tengo cuenta</button>
-                <a class="btn btn-outline" href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${encodeURIComponent(`Hola, quiero informacion sobre ${BUSINESS_PROFILE.name}.`)}" target="_blank" rel="noreferrer">WhatsApp</a>
-              </div>
             </div>
+
+            <div class="public-hero-actions ticket-public-actions">
+              <button class="btn btn-primary" type="button" data-public-auth-target="register">Crear mi solicitud</button>
+            </div>
+
+            <dl class="ticket-public-details">
+              <div>
+                <dt>Recogida</dt>
+                <dd>Programada por zona</dd>
+              </div>
+              <div>
+                <dt>Seguimiento</dt>
+                <dd>Estado, PIN y factura</dd>
+              </div>
+              <div>
+                <dt>Atención</dt>
+                <dd>Directa por WhatsApp</dd>
+              </div>
+            </dl>
           </div>
 
-          <div class="public-hero-visual" aria-label="Vista moderna del servicio">
-            <div class="public-phone-card">
-              <div class="public-phone-top">
-                <span></span>
-                <strong>Pedido activo</strong>
-              </div>
-              <div class="public-phone-status">
-                <small>Lavado + Planchado</small>
-                <strong>En camino al local</strong>
-              </div>
-              <div class="public-phone-progress">
-                <span class="is-done"></span>
-                <span class="is-done"></span>
-                <span class="is-active"></span>
-                <span></span>
-              </div>
-              <div class="public-phone-grid">
-                <div><span>Ruta</span><strong>GPS listo</strong></div>
-                <div><span>Pago</span><strong>Por verificar</strong></div>
+          <figure class="public-hero-visual ticket-public-visual">
+            <div class="ticket-photo-frame">
+              <img
+                class="ticket-photo-image"
+                src="assets/menta-care-hero-v1.png"
+                alt="Profesional de Menta cuidando y doblando prendas limpias"
+              />
+              <div class="ticket-photo-mark">
+                <img src="${BUSINESS_ASSETS.logo}" alt="" aria-hidden="true" />
               </div>
             </div>
-            <div class="public-floating-pill public-floating-pill-one">PIN seguro</div>
-            <div class="public-floating-pill public-floating-pill-two">Factura clara</div>
-            <div class="public-floating-pill public-floating-pill-three">Soporte directo</div>
+            <figcaption class="ticket-photo-caption">
+              <div>
+                <span>Cuidado Menta</span>
+                <strong>Revisión, tratamiento y acabado</strong>
+              </div>
+            </figcaption>
+          </figure>
+        </section>
+
+        <div id="publicAuthDock" class="ticket-public-auth-dock" hidden></div>
+
+        <section id="publicProcess" class="public-section public-process ticket-care-strip" aria-labelledby="ticketCareTitle">
+          <div class="ticket-care-heading">
+            <span>El recorrido de cada prenda</span>
+            <h2 id="ticketCareTitle">Recogemos. Cuidamos. Entregamos.</h2>
+          </div>
+          <div class="public-process-grid ticket-care-list">
+            <article class="ticket-care-step">
+              <span class="ticket-care-number">01</span>
+              <svg class="ticket-care-icon" viewBox="0 0 32 32" aria-hidden="true">
+                <path d="M9 10h14l2 17H7L9 10Z"></path>
+                <path d="M12 11V8a4 4 0 0 1 8 0v3"></path>
+                <path d="m13 18 3 3 5-6"></path>
+              </svg>
+              <div>
+                <strong>Recogemos</strong>
+                <p>Coordinamos el día, la hora y el punto exacto en tu zona.</p>
+              </div>
+            </article>
+            <article class="ticket-care-step">
+              <span class="ticket-care-number">02</span>
+              <svg class="ticket-care-icon" viewBox="0 0 32 32" aria-hidden="true">
+                <rect x="6" y="4" width="20" height="24" rx="1"></rect>
+                <path d="M6 10h20"></path>
+                <circle cx="16" cy="19" r="6"></circle>
+                <path d="M10 7h1M14 7h1"></path>
+              </svg>
+              <div>
+                <strong>Cuidamos</strong>
+                <p>Revisamos y tratamos cada prenda según lo que necesita.</p>
+              </div>
+            </article>
+            <article class="ticket-care-step">
+              <span class="ticket-care-number">03</span>
+              <svg class="ticket-care-icon" viewBox="0 0 32 32" aria-hidden="true">
+                <path d="M16 8a3 3 0 1 0-3-3"></path>
+                <path d="m16 8-11 9v3h22v-3L16 8Z"></path>
+              </svg>
+              <div>
+                <strong>Entregamos</strong>
+                <p>Tu ropa vuelve lista para usar, con cierre verificado en tu cuenta.</p>
+              </div>
+            </article>
           </div>
         </section>
 
-        <section class="public-trust-grid" aria-label="Confianza de Menta Laundry">
-          <div class="auth-trust-card public-trust-card">
-            <span>Horario extendido</span>
-            <strong>8:00 AM - 10:00 PM</strong>
+        <section id="publicServices" class="public-section ticket-service-ledger" aria-labelledby="ticketServicesTitle">
+          <div class="public-section-head ticket-ledger-heading">
+            <span>Menú de cuidado / Menta</span>
+            <h2 id="ticketServicesTitle">Lo que podemos cuidar por ti.</h2>
+            <p>Selecciona el tipo de servicio al crear tu solicitud. El equipo revisa los detalles antes de iniciar.</p>
           </div>
-          <div class="auth-trust-card public-trust-card">
-            <span>Seguimiento</span>
-            <strong>Estados, PIN y factura en cuenta</strong>
-          </div>
-          <div class="auth-trust-card public-trust-card">
-            <span>Contacto humano</span>
-            <strong>${BUSINESS_PROFILE.phone}</strong>
-          </div>
-        </section>
-
-        <section id="publicServices" class="public-section">
-          <div class="public-section-head">
-            <span>Cuidado textil</span>
-            <strong>Servicios claros, sin vueltas.</strong>
-          </div>
-          <div class="auth-feature-grid auth-feature-grid-premium public-service-grid">
-            <div class="auth-feature-card public-service-card">
-              <span class="feature-pill">Por libra</span>
-              <strong>Lavado + Planchado</strong>
-              <p>Para ropa diaria, hogares y oficinas que necesitan resolver rapido con seguimiento.</p>
-            </div>
-            <div class="auth-feature-card public-service-card">
-              <span class="feature-pill">Seleccionadas</span>
-              <strong>Prendas delicadas</strong>
-              <p>Camisas, pantalones finos, vestidos y piezas que merecen una lectura mas cuidada.</p>
-            </div>
-            <div class="auth-feature-card auth-feature-card-wide public-service-card">
-              <span class="feature-pill">Extras</span>
-              <strong>Manchas, costura y aromatizante</strong>
-              <p>Agrega detalles especiales desde la solicitud para que el equipo sepa que mirar.</p>
-            </div>
-          </div>
-        </section>
-
-        <section id="publicProcess" class="public-section public-process">
-          <div class="public-section-head">
-            <span>Como funciona</span>
-            <strong>Simple, visual y verificable.</strong>
-          </div>
-          <div class="public-process-grid">
-            <div><span>01</span><strong>Agenda</strong><p>Elige servicio, fecha, hora y punto de recogida.</p></div>
-            <div><span>02</span><strong>Confirmamos</strong><p>Ruta, PIN y repartidor quedan visibles en tu panel.</p></div>
-            <div><span>03</span><strong>Cuidamos</strong><p>El local pesa, revisa y mueve el pedido por etapas.</p></div>
-            <div><span>04</span><strong>Entregamos</strong><p>Factura, pago y cierre quedan guardados en tu cuenta.</p></div>
+          <div class="ticket-ledger">
+            <article class="ticket-ledger-row">
+              <div>
+                <strong>Lavado + planchado</strong>
+                <p>Ropa de uso diario, hogar y oficina.</p>
+              </div>
+              <span class="ticket-ledger-type">Por libra</span>
+            </article>
+            <article class="ticket-ledger-row">
+              <div>
+                <strong>Prendas delicadas</strong>
+                <p>Camisas, vestidos, sacos y piezas que requieren atención individual.</p>
+              </div>
+              <span class="ticket-ledger-type">Por prenda</span>
+            </article>
+            <article class="ticket-ledger-row">
+              <div>
+                <strong>Tintorería en seco</strong>
+                <p>Tratamiento especializado después de revisar composición y acabados.</p>
+              </div>
+              <span class="ticket-ledger-type">Por prenda</span>
+            </article>
+            <article class="ticket-ledger-row">
+              <div>
+                <strong>Detalles especiales</strong>
+                <p>Manchas difíciles, costura básica y aromatizante.</p>
+              </div>
+              <span class="ticket-ledger-type">A solicitud</span>
+            </article>
           </div>
         </section>
 
-        <section id="publicContact" class="public-contact-card">
-          <div>
-            <span>Contacto directo</span>
-            <strong>Listos para coordinar tu proxima recogida.</strong>
-            <small>${BUSINESS_PROFILE.email} | ${BUSINESS_PROFILE.address}</small>
+        <section id="publicContact" class="public-contact-card ticket-contact" aria-labelledby="ticketContactTitle">
+          <div class="ticket-contact-copy">
+            <span>Contacto / Santo Domingo</span>
+            <h2 id="ticketContactTitle">¿Tienes una prenda especial?</h2>
+            <p>Cuéntanos antes de agendar. Una persona del equipo te orientará sobre el cuidado más adecuado.</p>
+            <address>${BUSINESS_PROFILE.email}<br />${BUSINESS_PROFILE.phone}<br />${BUSINESS_PROFILE.address}</address>
           </div>
+          <figure class="ticket-contact-visual" aria-hidden="true">
+            <img
+              src="assets/menta-special-care-v1.webp"
+              alt=""
+              width="1692"
+              height="930"
+              loading="lazy"
+              decoding="async"
+            />
+          </figure>
           <div class="public-contact-actions">
-            <a class="btn btn-small btn-outline" href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${encodeURIComponent(`Hola, quiero coordinar una recogida con ${BUSINESS_PROFILE.name}.`)}" target="_blank" rel="noreferrer">WhatsApp</a>
-            <a class="btn btn-small" href="tel:+${BUSINESS_PHONE_DIGITS}">Llamar</a>
-            <a class="btn btn-small btn-outline" href="mailto:${BUSINESS_PROFILE.email}">Correo</a>
+            <button class="btn btn-small btn-primary" type="button" data-public-auth-target="register">Crear mi solicitud</button>
+            <a class="btn btn-small btn-outline" href="https://wa.me/${BUSINESS_PHONE_DIGITS}?text=${encodeURIComponent(`Hola, quiero coordinar una recogida con ${BUSINESS_PROFILE.name}.`)}" target="_blank" rel="noreferrer">Escribir por WhatsApp</a>
           </div>
         </section>
       </div>
@@ -6450,7 +6753,7 @@ function ensureAuthEnhancements() {
 
   authView.querySelector(".auth-metrics")?.remove();
 
-  authCard.classList.add("auth-card-premium");
+  authCard.classList.add("auth-card-premium", "ticket-auth");
   authCard.querySelector(".auth-card-hero")?.remove();
 
   if (!authCard.querySelector(".auth-login-panel") || !authCard.querySelector(".auth-register-panel")) {
@@ -6487,13 +6790,27 @@ function ensureAuthEnhancements() {
 
   const loginPanel = authCard.querySelector(".auth-login-panel");
   const registerPanel = authCard.querySelector(".auth-register-panel");
+  loginPanel?.classList.add("ticket-auth-panel");
+  registerPanel?.classList.add("ticket-auth-panel");
+
+  let ticketAuthHeader = authCard.querySelector(".ticket-auth-header");
+  if (!ticketAuthHeader) {
+    ticketAuthHeader = document.createElement("div");
+    ticketAuthHeader.className = "ticket-auth-header";
+    ticketAuthHeader.innerHTML = `
+      <span>Cuenta Menta / Acceso</span>
+      <strong>Tu ropa, a la vista.</strong>
+      <p>Consulta pedidos, rutas, pagos y entregas desde un solo lugar.</p>
+    `;
+  }
+
   let modeSwitch = authCard.querySelector(".auth-mode-switch");
   if (!modeSwitch) {
     modeSwitch = document.createElement("div");
-    modeSwitch.className = "auth-mode-switch";
     modeSwitch.setAttribute("role", "tablist");
     modeSwitch.setAttribute("aria-label", "Acceso de cuenta");
   }
+  modeSwitch.classList.add("auth-mode-switch", "ticket-auth-switch");
 
   modeSwitch.innerHTML = `
     <button
@@ -6504,8 +6821,8 @@ function ensureAuthEnhancements() {
       aria-controls="authLoginPanel"
       data-auth-mode-target="login"
     >
-      <strong>Iniciar sesion</strong>
-      <small>Acceso rapido a tu panel</small>
+      <strong>Ya tengo cuenta</strong>
+      <small>Entrar a mi panel</small>
     </button>
     <button
       id="authModeRegisterTab"
@@ -6515,13 +6832,14 @@ function ensureAuthEnhancements() {
       aria-controls="authRegisterPanel"
       data-auth-mode-target="register"
     >
-      <strong>Crear cuenta</strong>
-      <small>Alta nueva para cliente</small>
+      <strong>Soy cliente nuevo</strong>
+      <small>Crear acceso</small>
     </button>
   `;
 
-  if (authCard.firstElementChild !== modeSwitch) {
-    authCard.insertBefore(modeSwitch, authCard.firstElementChild);
+  if (authCard.firstElementChild !== ticketAuthHeader) authCard.prepend(ticketAuthHeader);
+  if (ticketAuthHeader.nextElementSibling !== modeSwitch) {
+    ticketAuthHeader.insertAdjacentElement("afterend", modeSwitch);
   }
 
   if (loginPanel) {
@@ -6535,7 +6853,7 @@ function ensureAuthEnhancements() {
       loginKicker.className = "auth-panel-kicker";
       loginPanel.prepend(loginKicker);
     }
-    loginKicker.textContent = "Acceso principal";
+    loginKicker.textContent = "Cuenta existente";
   }
   if (registerPanel) {
     registerPanel.id = "authRegisterPanel";
@@ -6548,19 +6866,19 @@ function ensureAuthEnhancements() {
       registerKicker.className = "auth-panel-kicker";
       registerPanel.prepend(registerKicker);
     }
-    registerKicker.textContent = "Cuenta nueva";
+    registerKicker.textContent = "Cliente nuevo";
   }
 
   const titles = authCard.querySelectorAll("h2");
-  if (titles[0]) titles[0].textContent = "Iniciar sesion";
+  if (titles[0]) titles[0].textContent = "Bienvenido de vuelta";
   if (titles[1]) {
-    titles[1].textContent = "Crear cuenta";
+    titles[1].textContent = "Tu primera recogida empieza aquí";
     titles[1].classList.add("secondary-title");
   }
 
   const subtitles = authCard.querySelectorAll(".auth-subtitle");
-  if (subtitles[0]) subtitles[0].textContent = "Accede con tu perfil de cliente, gestor, repartidor o cajera.";
-  if (subtitles[1]) subtitles[1].textContent = "Las cuentas nuevas de cliente se activan primero desde el correo.";
+  if (subtitles[0]) subtitles[0].textContent = "Ingresa con el correo asociado a tu cuenta.";
+  if (subtitles[1]) subtitles[1].textContent = "Crea tu cuenta de cliente y confirma el correo para comenzar.";
 
   ensureRegisterPasswordConfirmField();
   enhancePasswordFields(authCard);
@@ -6569,7 +6887,7 @@ function ensureAuthEnhancements() {
   if (loginGroups[0]) loginGroups[0].querySelector("label").textContent = "Correo electronico";
   if (loginGroups[1]) loginGroups[1].querySelector("label").textContent = "Contrasena";
   if (qs("#loginPassword")) qs("#loginPassword").placeholder = "Minimo 6 caracteres";
-  if (qs("#loginForm .btn")) qs("#loginForm .btn").textContent = "Entrar al panel";
+  if (qs("#loginForm .btn")) qs("#loginForm .btn").textContent = "Entrar a mi cuenta";
   if (qs("#showForgotPasswordBtn")) qs("#showForgotPasswordBtn").textContent = "Recuperar acceso";
   if (qs("#showResendVerificationBtn")) qs("#showResendVerificationBtn").textContent = "Verificar correo";
 
@@ -6579,11 +6897,12 @@ function ensureAuthEnhancements() {
   if (registerGroups[3]) registerGroups[3].querySelector("label").textContent = "Confirmar contrasena";
   if (qs("#registerPassword")) qs("#registerPassword").placeholder = "Minimo 6 caracteres";
   if (qs("#registerPasswordConfirm")) qs("#registerPasswordConfirm").placeholder = "Repite tu contrasena";
-  if (qs("#registerForm .btn")) qs("#registerForm .btn").textContent = "Crear cuenta";
+  if (qs("#registerForm .btn")) qs("#registerForm .btn").textContent = "Crear cuenta y continuar";
 
   qsa(".auth-hint").forEach((hint) => hint.remove());
 
   bindAuthModeSwitch(modeSwitch);
+  bindPublicAuthPlacement(authView, authCard);
   bindPublicLandingActions(authView);
   setAuthMode(authCard.dataset.authMode || "login");
 }
@@ -8535,7 +8854,7 @@ function normalizeStaticCopy() {
 
   const quickTitle = qs("#quickOrderCard .card-title");
   const quickSubtitle = qs("#quickOrderCard .card-secondary");
-  if (quickTitle) quickTitle.textContent = "Solicitar servicio a domicilio";
+  if (quickTitle) quickTitle.textContent = "Agendar otra recogida";
   if (quickSubtitle) {
     quickSubtitle.textContent =
       "Completa 3 pasos claros: servicio, ubicacion y confirmacion final.";
@@ -8715,6 +9034,8 @@ async function onCreateOrder(e) {
     await apiPost("/orders", body);
     showSuccess("Pedido creado correctamente.");
     qs("#quickOrderForm").reset();
+    clientOrderComposerOpen = false;
+    clientOrderComposerTouched = false;
     clearHomeLocation();
     setDefaultFormValues();
     syncPricingModeUI();
