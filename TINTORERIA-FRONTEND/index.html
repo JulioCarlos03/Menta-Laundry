@@ -7,6 +7,25 @@
   <meta name="menta-api-base" content="" />
   <title>Menta Laundry</title>
   <link rel="icon" href="assets/menta-icon.svg" type="image/svg+xml" />
+  <script>
+    (() => {
+      try {
+        if (localStorage.getItem("tintotoken")) return;
+      } catch {
+        // La portada seguira funcionando aunque el navegador bloquee localStorage.
+      }
+
+      const preload = document.createElement("link");
+      preload.rel = "preload";
+      preload.as = "image";
+      preload.type = "image/webp";
+      preload.href = "assets/menta-care-hero-768-v1.webp";
+      preload.imageSrcset = "assets/menta-care-hero-768-v1.webp 768w, assets/menta-care-hero-1536-v1.webp 1536w";
+      preload.imageSizes = "(max-width: 720px) calc(100vw - 36px), (max-width: 1180px) 50vw, 44vw";
+      preload.fetchPriority = "high";
+      document.head.appendChild(preload);
+    })();
+  </script>
   <style>
     html {
       background: #f5f1e8;
@@ -109,9 +128,10 @@
       }
     }
   </style>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="style.css?v=20260723-1" />
-  <link rel="stylesheet" href="ticket-menta.css?v=20260728-13" />
+  <link rel="stylesheet" href="ticket-menta.css?v=20260729-2" />
+  <script src="config.js" defer></script>
+  <script src="app.js?v=20260729-2" defer></script>
 </head>
 
 <body class="public-landing-mode theme-light app-booting" data-role="public" data-app-state="booting">
@@ -124,7 +144,7 @@
     aria-busy="true"
   >
     <div class="app-boot-card">
-      <img src="assets/menta-header-logo.png" width="670" height="380" alt="Menta Laundry" />
+      <img src="assets/menta-header-logo-optimized-v1.webp" width="335" height="190" alt="Menta Laundry" />
       <span id="appBootKicker" class="app-boot-kicker">Cuidado textil / Santo Domingo</span>
       <p id="appBootCopy" class="app-boot-copy">Preparando tu experiencia Menta...</p>
       <div id="appBootProgress" class="app-boot-progress" aria-hidden="true"><span></span></div>
@@ -138,7 +158,7 @@
     </style>
     <section class="app-boot-screen" aria-labelledby="appNoScriptTitle">
       <div class="app-boot-card">
-        <img src="assets/menta-header-logo.png" width="670" height="380" alt="Menta Laundry" />
+        <img src="assets/menta-header-logo-optimized-v1.webp" width="335" height="190" alt="Menta Laundry" />
         <span class="app-boot-kicker">Acceso a Menta Laundry</span>
         <p id="appNoScriptTitle" class="app-boot-copy">
           Esta aplicación necesita JavaScript para iniciar sesión y consultar tus pedidos.
@@ -152,7 +172,7 @@
   <header class="topbar">
     <div class="topbar-left">
       <div class="app-logo" aria-label="Menta Laundry">
-        <img src="assets/menta-header-logo.png" alt="Menta Laundry" />
+        <img src="assets/menta-header-logo-optimized-v1.webp" width="335" height="190" alt="Menta Laundry" />
       </div>
       <div class="app-brand">
         <div class="app-name">Menta Laundry</div>
@@ -719,8 +739,5 @@
   </div>
   </div>
 
-  <script src="config.js"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="app.js?v=20260729-1"></script>
 </body>
 </html>

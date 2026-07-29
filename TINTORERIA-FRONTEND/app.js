@@ -31,6 +31,10 @@ function resolveApiBase() {
 }
 
 const API_BASE = resolveApiBase();
+const LEAFLET_CSS_URL = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+const LEAFLET_JS_URL = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+const LEAFLET_CSS_INTEGRITY = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=";
+const LEAFLET_JS_INTEGRITY = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=";
 
 let currentUser = null;
 let ordersCache = [];
@@ -40,6 +44,7 @@ let homeLocation = null;
 let homePickupLeafletMap = null;
 let homePickupLeafletMarker = null;
 let homePickupLeafletAccuracy = null;
+let leafletAssetsPromise = null;
 let riderLocation = null;
 let gestorZoneFilter = "all";
 let clientActivityFilter = "all";
@@ -88,6 +93,102 @@ const ORDER_WIZARD_STEPS = [
 let currentOrderWizardStep = 0;
 let clientOrderComposerOpen = false;
 let clientOrderComposerTouched = false;
+
+function loadLeafletStylesheet() {
+  const existing = document.getElementById("leafletRuntimeCss");
+  if (existing?.sheet || existing?.dataset.ready === "true") {
+    return Promise.resolve(existing);
+  }
+
+  return new Promise((resolve, reject) => {
+    const link = existing || document.createElement("link");
+    const handleLoad = () => {
+      link.dataset.ready = "true";
+      resolve(link);
+    };
+    const handleError = () => {
+      link.remove();
+      reject(new Error("No se pudo cargar el estilo del mapa."));
+    };
+
+    link.addEventListener("load", handleLoad, { once: true });
+    link.addEventListener("error", handleError, { once: true });
+
+    if (!existing) {
+      link.id = "leafletRuntimeCss";
+      link.rel = "stylesheet";
+      link.href = LEAFLET_CSS_URL;
+      link.integrity = LEAFLET_CSS_INTEGRITY;
+      link.crossOrigin = "anonymous";
+      document.head.appendChild(link);
+    }
+  });
+}
+
+function loadLeafletScript() {
+  if (window.L?.map) return Promise.resolve(window.L);
+
+  document.getElementById("leafletRuntimeScript")?.remove();
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    const handleError = () => {
+      script.remove();
+      reject(new Error("No se pudo cargar la libreria del mapa."));
+    };
+
+    script.id = "leafletRuntimeScript";
+    script.src = LEAFLET_JS_URL;
+    script.integrity = LEAFLET_JS_INTEGRITY;
+    script.crossOrigin = "anonymous";
+    script.async = true;
+    script.addEventListener("load", () => {
+      if (window.L?.map) resolve(window.L);
+      else handleError();
+    }, { once: true });
+    script.addEventListener("error", handleError, { once: true });
+    document.head.appendChild(script);
+  });
+}
+
+function loadLeafletOnDemand() {
+  if (window.L?.map && document.getElementById("leafletRuntimeCss")?.sheet) {
+    return Promise.resolve(window.L);
+  }
+  if (leafletAssetsPromise) return leafletAssetsPromise;
+
+  leafletAssetsPromise = Promise.all([
+    loadLeafletStylesheet(),
+    loadLeafletScript(),
+  ])
+    .then(([, leaflet]) => leaflet)
+    .catch((error) => {
+      leafletAssetsPromise = null;
+      throw error;
+    });
+
+  return leafletAssetsPromise;
+}
+
+function prepareHomePickupMap() {
+  const mapEl = qs("#homePickupMap");
+  if (!mapEl) return;
+
+  mapEl.setAttribute("aria-busy", "true");
+  loadLeafletOnDemand()
+    .then(() => {
+      const mapPanel = mapEl.closest(".order-step-panel");
+      if (!mapPanel?.hidden) renderHomePickupMap();
+    })
+    .catch((error) => {
+      console.warn("El mapa detallado no cargo; se mantiene la vista simplificada.", error);
+      const mapPanel = mapEl.closest(".order-step-panel");
+      if (!mapPanel?.hidden) renderHomePickupMap();
+    })
+    .finally(() => {
+      mapEl.removeAttribute("aria-busy");
+    });
+}
 
 /* ============================================================
    DOM HELPERS
@@ -1363,53 +1464,7 @@ function setHeroStat(index, label, value) {
   if (valueNode) valueNode.textContent = value;
 }
 
-function updateDashboardHero() {
-  if (!currentUser) return;
 
-  const badge = qs("#homeContextBadge");
-  const today = new Date().toISOString().slice(0, 10);
-  const clientOrders = ordersCache.filter((o) => o.userId === currentUser.id);
-  const localToday = localOrdersCache.filter((o) => o.date === today);
-
-  if (currentUser.role === "cliente") {
-    const active = clientOrders.filter((o) => !isClosedOrderStatus(o.status));
-    const delivered = clientOrders.filter((o) => isFinalDeliveryStatus(o.status));
-    setHeroStat(1, "Pedidos", String(clientOrders.length));
-    setHeroStat(2, "Activos", String(active.length));
-    setHeroStat(3, "Entregados", String(delivered.length));
-    if (badge) badge.textContent = "Servicio signature";
-    return;
-  }
-
-  if (currentUser.role === "gestor") {
-    const pending = ordersCache.filter((o) => o.channel !== "local" && o.status === "pendiente");
-    const active = ordersCache.filter((o) => o.channel !== "local" && !isClosedOrderStatus(o.status));
-    setHeroStat(1, "Pendientes", String(pending.length));
-    setHeroStat(2, "Activos", String(active.length));
-    setHeroStat(3, "Rutas", String(repartidoresCache.length));
-    if (badge) badge.textContent = "Salon operativo";
-    return;
-  }
-
-  if (currentUser.role === "repartidor") {
-    const assigned = ordersCache.filter((o) => o.repartidorId === currentUser.id);
-    const todayCount = assigned.filter((o) => o.date === today);
-    const delivered = assigned.filter((o) => isFinalDeliveryStatus(o.status));
-    setHeroStat(1, "Asignados", String(assigned.length));
-    setHeroStat(2, "Hoy", String(todayCount.length));
-    setHeroStat(3, "Entregados", String(delivered.length));
-    if (badge) badge.textContent = "Ruta del dia";
-    return;
-  }
-
-  if (currentUser.role === "cajera") {
-    const received = localOrdersCache.filter((o) => String(o.status).toLowerCase().includes("recibido"));
-    setHeroStat(1, "Local", String(localOrdersCache.length));
-    setHeroStat(2, "Hoy", String(localToday.length));
-    setHeroStat(3, "Recibidos", String(received.length));
-    if (badge) badge.textContent = "Caja boutique";
-  }
-}
 
 function setDefaultFormValues() {
   const dateInput = qs("#homeDate");
@@ -1449,7 +1504,7 @@ function ensureTopbarEnhancements() {
   const logo = qs(".app-logo");
   if (logo) {
     logo.setAttribute("aria-label", BUSINESS_PROFILE.name);
-    logo.innerHTML = `<img src="${BUSINESS_ASSETS.logo}" alt="${BUSINESS_PROFILE.name}" />`;
+    logo.innerHTML = `<img src="${BUSINESS_ASSETS.logo}" width="335" height="190" alt="${BUSINESS_PROFILE.name}" />`;
   }
   let favicon = document.querySelector('link[rel="icon"]');
   if (!favicon) {
@@ -1493,191 +1548,11 @@ function ensureTopbarEnhancements() {
   }
 }
 
-function ensureAuthEnhancements() {
-  const authView = qs("#authView");
-  const authCard = authView?.querySelector(".auth-card");
-  if (!authView || !authCard) return;
-  if (!currentUser) document.body.classList.add("public-landing-mode");
 
-  if (!authView.querySelector(".auth-shell")) {
-    const shell = document.createElement("div");
-    shell.className = "auth-shell";
 
-    const showcase = document.createElement("aside");
-    showcase.className = "auth-showcase";
-    showcase.innerHTML = `
-      <div class="auth-kicker">Edicion signature</div>
-      <h1 class="auth-title">Una experiencia de tintoreria con presencia premium.</h1>
-      <p class="auth-copy">
-        Centraliza pedidos, seguimiento, facturacion y operacion del local con una
-        interfaz mas refinada, sobria y exclusiva.
-      </p>
-      <div class="auth-metrics">
-        <div class="auth-metric"><strong>Pickup</strong><span>coordinado por zona</span></div>
-        <div class="auth-metric"><strong>Control</strong><span>operativo y visual</span></div>
-        <div class="auth-metric"><strong>Entrega</strong><span>con seguimiento claro</span></div>
-      </div>
-      <div class="auth-feature-grid">
-        <div class="auth-feature-card"><span class="feature-pill">Seguimiento privado</span><p>Visualiza el estado de cada pedido con una lectura clara y elegante.</p></div>
-        <div class="auth-feature-card"><span class="feature-pill">Atencion concierge</span><p>Coordina repartidores, local y clientes desde una misma experiencia.</p></div>
-        <div class="auth-feature-card"><span class="feature-pill">Factura signature</span><p>Consulta detalles y totales con una presentacion mas cuidada.</p></div>
-      </div>
-      <div class="auth-preview">
-        <div class="preview-header">
-          <span class="preview-label">Flujo signature</span>
-          <span class="preview-note">Operacion</span>
-        </div>
-        <div class="preview-steps">
-          <div class="preview-step preview-step-active">Solicitud</div>
-          <div class="preview-step">Recibido</div>
-          <div class="preview-step">En camino</div>
-          <div class="preview-step">Entregado</div>
-        </div>
-      </div>
-    `;
 
-    authView.innerHTML = "";
-    shell.append(showcase, authCard);
-    authView.appendChild(shell);
-  }
 
-  const titles = authCard.querySelectorAll("h2");
-  if (titles[0]) titles[0].textContent = "Iniciar sesion";
-  if (titles[1]) {
-    titles[1].textContent = "Crear cuenta";
-    titles[1].classList.add("secondary-title");
-  }
 
-  const subtitles = authCard.querySelectorAll(".auth-subtitle");
-  if (subtitles[0]) subtitles[0].textContent = "Accede con tu perfil de cliente, gestor, repartidor o cajera.";
-  if (subtitles[1]) subtitles[1].textContent = "Las cuentas nuevas de cliente se activan primero desde el correo.";
-
-  const loginGroups = qs("#loginForm")?.querySelectorAll(".field-group") || [];
-  if (loginGroups[0]) loginGroups[0].querySelector("label").textContent = "Correo electronico";
-  if (loginGroups[1]) loginGroups[1].querySelector("label").textContent = "Contrasena";
-  if (qs("#loginPassword")) qs("#loginPassword").placeholder = "Minimo 6 caracteres";
-  if (qs("#loginForm .btn")) qs("#loginForm .btn").textContent = "Entrar al panel";
-
-  const registerGroups = qs("#registerForm")?.querySelectorAll(".field-group") || [];
-  if (registerGroups[1]) registerGroups[1].querySelector("label").textContent = "Correo electronico";
-  if (registerGroups[2]) registerGroups[2].querySelector("label").textContent = "Contrasena";
-  if (qs("#registerPassword")) qs("#registerPassword").placeholder = "Minimo 6 caracteres";
-  if (qs("#registerForm .btn")) qs("#registerForm .btn").textContent = "Crear cuenta";
-
-  const hint = authCard.querySelector(".auth-hint");
-  if (hint && !hint.querySelector(".auth-hint-title")) {
-    const title = document.createElement("div");
-    title.className = "auth-hint-title";
-    title.textContent = "Soporte de acceso";
-    hint.prepend(title);
-  }
-
-  ensureAuthSupportBlocks();
-}
-
-function ensureWelcomeEnhancements() {
-  const welcomeBlock = qs(".welcome-block");
-  const welcomeText = welcomeBlock?.querySelector(".welcome-text");
-  const roleBadge = welcomeBlock?.querySelector(".role-badge");
-  if (!welcomeBlock || !welcomeText || welcomeBlock.querySelector(".welcome-main")) return;
-  if (roleBadge) roleBadge.hidden = true;
-
-  const main = document.createElement("div");
-  main.className = "welcome-main";
-  main.innerHTML = `<div class="card-eyebrow">Panel operativo</div>`;
-  main.appendChild(welcomeText);
-
-  const tags = document.createElement("div");
-  tags.className = "welcome-tags";
-  tags.innerHTML = `
-    <span class="info-chip">Vista editorial</span>
-    <span class="info-chip">Facturacion signature</span>
-    <span class="info-chip">Operacion de atelier</span>
-  `;
-  main.appendChild(tags);
-
-  const side = document.createElement("div");
-  side.className = "welcome-side";
-
-  const stats = document.createElement("div");
-  stats.className = "hero-stats";
-  stats.innerHTML = `
-    <div class="hero-stat">
-      <span id="heroStatLabel1" class="hero-stat-label">Pedidos</span>
-      <strong id="heroStatValue1" class="hero-stat-value">0</strong>
-    </div>
-    <div class="hero-stat">
-      <span id="heroStatLabel2" class="hero-stat-label">Estado</span>
-      <strong id="heroStatValue2" class="hero-stat-value">0</strong>
-    </div>
-    <div class="hero-stat">
-      <span id="heroStatLabel3" class="hero-stat-label">Clientes</span>
-      <strong id="heroStatValue3" class="hero-stat-value">0</strong>
-    </div>
-  `;
-  side.appendChild(stats);
-
-  welcomeBlock.innerHTML = "";
-  welcomeBlock.append(main, side);
-}
-
-function ensureHomeEnhancements() {
-  const screenHome = qs("#screenHome");
-  if (!screenHome) return;
-
-  if (!screenHome.querySelector(".screen-heading")) {
-    const heading = document.createElement("div");
-    heading.className = "screen-heading";
-    heading.innerHTML = `
-      <div>
-        <div class="screen-kicker">Salon principal</div>
-        <h3 class="screen-title">Resumen del dia</h3>
-      </div>
-      <div id="homeContextBadge" class="screen-badge">Experiencia sincronizada</div>
-    `;
-    screenHome.prepend(heading);
-  }
-
-  const nextOrderCard = qs("#nextOrderCard");
-  const quickOrderCard = qs("#quickOrderCard");
-  if (nextOrderCard && !screenHome.querySelector(".home-client-layout")) {
-    const layout = document.createElement("div");
-    layout.className = "home-client-layout";
-    screenHome.insertBefore(layout, nextOrderCard);
-    layout.appendChild(nextOrderCard);
-
-    const serviceCard = document.createElement("div");
-    serviceCard.id = "serviceExperienceCard";
-    serviceCard.className = "card service-card";
-    serviceCard.innerHTML = `
-      <div class="card-title">Experiencia signature</div>
-      <div class="service-grid">
-        <div class="service-item"><strong>Recogida privada</strong><span>Agenda por zona con fecha y hora.</span></div>
-        <div class="service-item"><strong>Trazabilidad elegante</strong><span>Sigue el pedido desde solicitud hasta entrega.</span></div>
-        <div class="service-item"><strong>Factura de atelier</strong><span>Consulta precios, extras e ITBIS desde el panel.</span></div>
-      </div>
-    `;
-    layout.appendChild(serviceCard);
-  }
-
-  quickOrderCard?.classList.add("order-card");
-  qs("#cashierForm")?.closest(".card")?.classList.add("order-card");
-  qs("#ridersActivity")?.classList.add("riders-activity");
-
-  const activityCard = qs("#screenActivity .card");
-  if (activityCard && !activityCard.querySelector(".card-secondary")) {
-    const subtitle = document.createElement("div");
-    subtitle.className = "card-secondary";
-    subtitle.textContent = "Historial reciente de pedidos y movimientos.";
-    activityCard.insertBefore(subtitle, qs("#activityTimeline"));
-  }
-
-  const localCard = qs("#screenLocal .card + .card");
-  localCard?.classList.add("card-spaced");
-
-  const gestorCard = qs("#gestorHomePanel .card");
-  gestorCard?.classList.add("card-spaced");
-}
 
 function ensureSecondaryEnhancements() {
   const navConfig = {
@@ -1712,90 +1587,7 @@ function ensureSecondaryEnhancements() {
   }
 }
 
-function normalizeStaticCopy() {
-  const nextOrderTitle = qs("#nextOrderCard .card-title");
-  if (nextOrderTitle) nextOrderTitle.textContent = "Tu pedido activo";
 
-  const quickTitle = qs("#quickOrderCard .card-title");
-  const quickSubtitle = qs("#quickOrderCard .card-secondary");
-  if (quickTitle) quickTitle.textContent = "Ordenar recogida a domicilio";
-  if (quickSubtitle) quickSubtitle.textContent = "Agenda de 8:00 AM a 10:00 PM con seguimiento privado.";
-
-  const quickLabels = qs("#quickOrderForm")?.querySelectorAll("label") || [];
-  const quickTexts = ["Zona", "Direccion", "Fecha", "Hora", "Tipo de servicio", "Paquete principal", "Extras", "Notas"];
-  quickLabels.forEach((label, index) => {
-    if (quickTexts[index]) label.textContent = quickTexts[index];
-  });
-
-  if (qs("#homeAddress")) qs("#homeAddress").placeholder = "Ej: Calle 27 #14, Naco";
-  if (qs("#homeNotes")) qs("#homeNotes").placeholder = "Ej: tocar el timbre, dejar en recepcion...";
-
-  const serviceOptions = qs("#homeServicePack")?.options || [];
-  if (serviceOptions[3]) serviceOptions[3].textContent = "Tintoreria en seco";
-
-  const cashierTitleNodes = qsa("#cashierHomePanel .card-title");
-  if (cashierTitleNodes[0]) cashierTitleNodes[0].textContent = "Local y caja";
-  if (cashierTitleNodes[1]) cashierTitleNodes[1].textContent = "Crear pedido en local";
-  const cashierSubtitle = qs("#cashierHomePanel .card-secondary");
-  if (cashierSubtitle) cashierSubtitle.textContent = "Registra pedidos cuando el cliente entrega en tienda.";
-
-  const cashierLabels = qs("#cashierForm")?.querySelectorAll("label") || [];
-  const cashierTexts = ["Nombre del cliente", "Telefono", "Correo", "Libras", "Paquete principal", "Extras", "Notas"];
-  cashierLabels.forEach((label, index) => {
-    if (cashierTexts[index]) label.textContent = cashierTexts[index];
-  });
-
-  if (qs("#cashierPhone")) qs("#cashierPhone").placeholder = "Ej: 809-000-0000";
-  const cashierOptions = qs("#cashierPack")?.options || [];
-  if (cashierOptions[3]) cashierOptions[3].textContent = "Tintoreria en seco";
-
-  const premiumTitle = qs("#screenPremium .card-title");
-  const premiumText = qs("#screenPremium .premium-text");
-  const premiumNote = qs("#screenPremium .premium-note");
-  if (premiumTitle) premiumTitle.textContent = "Club Signature";
-  if (premiumText) premiumText.textContent = "Proximamente: membresia mensual o anual con beneficios exclusivos, prioridad y recompensas.";
-  if (premiumNote) premiumNote.textContent = "Beneficios sujetos a disponibilidad del servicio.";
-  qsa("#screenPremium .premium-list li").forEach((item, index) => {
-    const texts = [
-      "Beneficios privados por pedidos",
-      "Prioridad de atencion y promociones exclusivas",
-      "Lavado sin costo cada cierta cantidad de libras",
-    ];
-    item.textContent = texts[index] || item.textContent;
-  });
-  const premiumBtn = qs("#screenPremium .btn");
-  if (premiumBtn) premiumBtn.textContent = "Proximamente";
-
-  const ridersCardTitles = qsa("#screenRiders .card-title");
-  const ridersCardSubtitle = qs("#screenRiders .card-secondary");
-  if (ridersCardTitles[0]) ridersCardTitles[0].textContent = "Actividad de repartidores";
-  if (ridersCardSubtitle) ridersCardSubtitle.textContent = "Metas diarias por zona y progreso en tiempo real.";
-
-  const localTitles = qsa("#screenLocal .card-title");
-  if (localTitles[0]) localTitles[0].textContent = "Pedidos del local";
-  if (localTitles[1]) localTitles[1].textContent = "Lista de pedidos";
-  const localSubtitles = qsa("#screenLocal .card-secondary");
-  if (localSubtitles[0]) localSubtitles[0].textContent = "Pedidos creados por la cajera en tienda.";
-
-  const accountTitle = qs("#screenAccount .card-title");
-  const accountSubtitle = qs("#screenAccount .card-secondary");
-  if (accountTitle) accountTitle.textContent = "Cuenta";
-  if (accountSubtitle) accountSubtitle.textContent = "Administra tu informacion principal y canales de contacto.";
-  const profileLabels = qs("#profileForm")?.querySelectorAll("label") || [];
-  const profileTexts = ["Nombre", "Correo", "Rol"];
-  profileLabels.forEach((label, index) => {
-    if (profileTexts[index]) label.textContent = profileTexts[index];
-  });
-  const helpItems = qsa(".help-list li");
-  const helpTexts = [
-    `Soporte: ${BUSINESS_PROFILE.email}`,
-    "Horario: 8:00 AM - 10:00 PM",
-    "Agenda: recogida y entrega coordinada por zona",
-  ];
-  helpItems.forEach((item, index) => {
-    if (helpTexts[index]) item.textContent = helpTexts[index];
-  });
-}
 
 function showScreen(screenId, { skipData = false, skipRender = false, forceRender = false } = {}) {
   const resolvedScreen = resolveRoleScreen(screenId);
@@ -2726,7 +2518,7 @@ function ensureAppEntryOverlay() {
   overlay.innerHTML = `
     <div class="app-entry-card">
       <div class="app-entry-mark">
-        <img src="${BUSINESS_ASSETS.logo}" alt="${BUSINESS_PROFILE.name}" />
+        <img src="${BUSINESS_ASSETS.logo}" width="335" height="190" alt="${BUSINESS_PROFILE.name}" />
       </div>
       <div id="appEntryTitle" class="app-entry-title">Preparando tu panel</div>
       <div id="appEntryCopy" class="app-entry-copy">Estamos abriendo tu experiencia de ${BUSINESS_PROFILE.name}.</div>
@@ -3224,360 +3016,35 @@ function updateUIByRole() {
 /* ============================================================
    CLIENTE: CREATE ORDER (domicilio)
 ============================================================ */
-async function onCreateOrder(e) {
-  e.preventDefault();
 
-  const extras = Array.from(qs("#quickOrderForm").querySelectorAll(".chip input:checked"))
-    .map((i) => i.value);
 
-  const body = {
-    userId: currentUser.id,
-    address: qs("#homeAddress").value.trim(),
-    zone: qs("#homeZone").value,
-    serviceType: qs("#homePickupType").value,
-    date: qs("#homeDate").value,
-    time: qs("#homeTime").value,
-    pack: qs("#homeServicePack").value,
-    extras,
-    notes: qs("#homeNotes").value.trim(),
-  };
 
-  try {
-    await apiPost("/orders", body);
-    alert("Pedido creado ✅");
-    qs("#quickOrderForm").reset();
-    await loadAll();
-  } catch (err) {
-    alert(err.message || "Error creando pedido");
-  }
-}
 
-function renderClientHome() {
-  const my = ordersCache.filter((o) => o.userId === currentUser.id);
-  const active = my.find((o) => o.status !== "entregado" && o.status !== "cancelado");
 
-  if (!active) {
-    qs("#nextOrderStatus").textContent = "Sin pedidos";
-    qs("#nextOrderInfo").textContent = "Cuando crees un pedido, verás aquí su estado.";
-    return;
-  }
-
-  qs("#nextOrderStatus").textContent = active.status;
-
-  let info = `${fmtDate(active.date)} · ${active.time} · ${active.zone}`;
-  if (active.repartidorName) info += ` · Repartidor: ${active.repartidorName}`;
-
-  if (canCancel(active)) {
-    qs("#nextOrderInfo").innerHTML = `
-      ${info}<br/>
-      <button class="btn btn-small btn-outline" id="homeCancelBtn">Cancelar (5 min)</button>
-    `;
-    qs("#homeCancelBtn").addEventListener("click", () => cancelOrder(active.id));
-  } else {
-    qs("#nextOrderInfo").textContent = info;
-  }
-}
-
-function renderClientActivity() {
-  const timeline = qs("#activityTimeline");
-  timeline.innerHTML = "";
-
-  const my = ordersCache.filter((o) => o.userId === currentUser.id);
-
-  my.forEach((o) => {
-    const li = document.createElement("li");
-    li.className = "timeline-item";
-    li.innerHTML = `
-      <div class="timeline-icon">🧺</div>
-      <div class="timeline-content">
-        <div class="timeline-title">Pedido #${o.id} · ${o.status}</div>
-        <div class="timeline-meta">${fmtDate(o.date)} · ${o.zone} · ${o.repartidorName || "Sin asignar"}</div>
-        <div class="timeline-actions">
-          <button class="btn btn-small" data-factura="${o.id}">Factura</button>
-          ${canCancel(o) ? `<button class="btn btn-small btn-outline" data-cancel="${o.id}">Cancelar</button>` : ""}
-        </div>
-      </div>
-    `;
-    timeline.appendChild(li);
-  });
-
-  qsa("[data-factura]").forEach((b) => b.addEventListener("click", openInvoice));
-  qsa("[data-cancel]").forEach((b) => b.addEventListener("click", (ev) => cancelOrder(ev.target.dataset.cancel)));
-}
 
 /* ============================================================
    GESTOR: HOME (pendientes + en proceso)
 ============================================================ */
-function renderGestorHome() {
-  const pendientes = ordersCache.filter((o) => o.channel !== "local" && o.status === "pendiente");
-  const enProceso = ordersCache.filter(
-    (o) =>
-      o.channel !== "local" &&
-      o.status !== "pendiente" &&
-      o.status !== "entregado" &&
-      o.status !== "cancelado"
-  );
 
-  qs("#gestorActiveCount").textContent = ordersCache.filter((o) => o.channel !== "local").length;
-  qs("#gestorTodayCount").textContent = ordersCache.filter((o) => o.channel !== "local").length;
-  qs("#gestorClientsCount").textContent = new Set(ordersCache.filter(o=>o.channel!=="local").map((o) => o.userId)).size;
 
-  // tabla asignación
-  const tbody = qs("#gestorAssignBody");
-  tbody.innerHTML = "";
 
-  pendientes.forEach((o) => {
-    const reps = repartidoresCache.filter((r) => r.zone === o.zone);
-
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${o.id}</td>
-      <td>${o.userName}</td>
-      <td>${o.zone}</td>
-      <td>${o.date}</td>
-      <td>${o.status}</td>
-      <td>
-        <select data-assign="${o.id}">
-          <option value="">Elegir…</option>
-          ${reps.map((r) => `<option value="${r.id}">${r.name}</option>`).join("")}
-        </select>
-      </td>
-      <td><button class="btn btn-small" data-factura="${o.id}">Ver</button></td>
-      <td><button class="btn btn-small" data-detalle="${o.id}">Ver</button></td>
-      <td><button class="btn btn-primary btn-small" data-save="${o.id}">Asignar</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  qsa("[data-save]").forEach((btn) => btn.addEventListener("click", gestorAssign));
-  qsa("[data-factura]").forEach((btn) => btn.addEventListener("click", openInvoice));
-  qsa("[data-detalle]").forEach((btn) => btn.addEventListener("click", openInvoice));
-
-  // tabla en proceso (inyectada)
-  let card = qs("#gestorInProgressCard");
-  if (!card) {
-    card = document.createElement("div");
-    card.className = "role-panel";
-    card.id = "gestorInProgressCard";
-    card.innerHTML = `
-      <div class="card" style="margin-top:.75rem;">
-        <div class="card-title">Pedidos asignados / en proceso</div>
-        <div class="role-table-wrapper" style="margin-top:0.5rem;">
-          <table class="role-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Cliente</th>
-                <th>Zona</th>
-                <th>Dirección</th>
-                <th>Fecha</th>
-                <th>Estado</th>
-                <th>Repartidor</th>
-                <th>Factura</th>
-                <th>Detalles</th>
-              </tr>
-            </thead>
-            <tbody id="gestorInProgressBody"></tbody>
-          </table>
-        </div>
-      </div>
-    `;
-    qs("#gestorHomePanel").appendChild(card);
-  }
-
-  const body2 = qs("#gestorInProgressBody");
-  body2.innerHTML = "";
-
-  enProceso.forEach((o) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${o.id}</td>
-      <td>${o.userName}</td>
-      <td>${o.zone}</td>
-      <td>${o.address}</td>
-      <td>${o.date} ${o.time}</td>
-      <td>${o.status}</td>
-      <td>${o.repartidorName || "-"}</td>
-      <td><button class="btn btn-small" data-factura="${o.id}">Ver</button></td>
-      <td><button class="btn btn-small" data-detalle="${o.id}">Ver</button></td>
-    `;
-    body2.appendChild(tr);
-  });
-
-  qsa("[data-factura]").forEach((btn) => btn.addEventListener("click", openInvoice));
-  qsa("[data-detalle]").forEach((btn) => btn.addEventListener("click", openInvoice));
-}
-
-async function gestorAssign(ev) {
-  const orderId = ev.target.dataset.save;
-  const select = qs(`select[data-assign="${orderId}"]`);
-  const repartidorId = select.value;
-  if (!repartidorId) return alert("Elige un repartidor");
-
-  try {
-    await apiPut(`/orders/${orderId}/assign`, { repartidorId });
-    await loadAll();
-  } catch (err) {
-    alert(err.message || "Error asignando");
-  }
-}
 
 /* ============================================================
    GESTOR: RIDERS ACTIVITY (meta 30 por zona)
 ============================================================ */
-function renderGestorRidersActivity() {
-  const container = qs("#ridersActivity");
-  if (!container) return;
-  container.innerHTML = "";
 
-  const today = new Date().toISOString().slice(0, 10);
-
-  const zones = {};
-  repartidoresCache.forEach((rep) => {
-    const z = rep.zone || "Distrito Nacional";
-    if (!zones[z]) zones[z] = [];
-    zones[z].push(rep);
-  });
-
-  Object.keys(zones).forEach((zone) => {
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `<div class="card-title">Zona ${zone}</div>`;
-    container.appendChild(card);
-
-    zones[zone].forEach((rep) => {
-      const count = ordersCache.filter((o) => o.repartidorId === rep.id && o.date === today).length;
-      const meta = 30;
-      const pct = Math.min((count / meta) * 100, 100);
-      const faltan = Math.max(meta - count, 0);
-
-      const block = document.createElement("div");
-      block.className = "rider-progress-block";
-      block.innerHTML = `
-        <div class="card-line">
-          <span class="card-label">${rep.name}</span>
-          <span class="status-pill">${count}/${meta}</span>
-        </div>
-        <div class="progress-row">
-          <div class="progress-bar">
-            <div class="progress-fill" style="width:${pct}%"></div>
-          </div>
-          <span class="progress-text">Te faltan ${faltan} para tener un bono y comisión, vamos que tú puedes 💪</span>
-        </div>
-      `;
-      card.appendChild(block);
-    });
-  });
-}
 
 /* ============================================================
    GESTOR: LOCAL TAB
 ============================================================ */
-function renderGestorLocal() {
-  const tbody = qs("#localOrdersBody");
-  if (!tbody) return;
 
-  tbody.innerHTML = "";
-
-  localOrdersCache.forEach((o) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${o.id}</td>
-      <td>${o.userName}</td>
-      <td>${o.phone || "—"}</td>
-      <td>${o.lbs || 0}</td>
-      <td>${o.pack}</td>
-      <td>${o.status}</td>
-      <td><button class="btn btn-small" data-factura="${o.id}">Ver</button></td>
-      <td><button class="btn btn-small" data-detalle="${o.id}">Ver</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  qsa("[data-factura]").forEach((btn) => btn.addEventListener("click", openInvoice));
-  qsa("[data-detalle]").forEach((btn) => btn.addEventListener("click", openInvoice));
-}
 
 /* ============================================================
    REPARTIDOR: HOME
 ============================================================ */
-function renderRepartidorHome() {
-  const assigned = ordersCache.filter((o) => o.repartidorId === currentUser.id);
-  const today = new Date().toISOString().slice(0, 10);
-  const todayCount = assigned.filter((o) => o.date === today).length;
 
-  const meta = 30;
-  const extra = Math.max(todayCount - meta, 0);
-  const comision = extra * 50;
 
-  qs("#repartidorMetaText").textContent = `Meta ${todayCount}/${meta}. Comisión: RD$ ${comision}`;
 
-  const tbody = qs("#repartidorOrdersBody");
-  tbody.innerHTML = "";
-
-  assigned.forEach((o) => {
-    const stRecibido = "recibido";
-    const stCamino = "en camino";
-    const stEntregado = "entregado";
-
-    const disRecibido = !canMoveTo(o.status, stRecibido);
-    const disCamino = !canMoveTo(o.status, stCamino);
-    const disEntregado = !canMoveTo(o.status, stEntregado);
-
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${o.id}</td>
-      <td>${o.userName}</td>
-      <td>${o.zone}</td>
-      <td>${o.address}</td>
-      <td>${o.date} ${o.time}</td>
-      <td><input type="number" min="0" step="0.1" data-lbs="${o.id}" value="${o.lbs || 0}"></td>
-      <td>${o.status}</td>
-      <td>
-        <button class="btn btn-small" data-factura="${o.id}">Factura</button>
-        <button class="btn btn-small" data-detalle="${o.id}">Detalles</button>
-      </td>
-      <td>
-        <button class="btn btn-small" data-state="recibido" data-id="${o.id}" ${disRecibido ? "disabled" : ""}>Recibido</button>
-        <button class="btn btn-small" data-state="camino" data-id="${o.id}" ${disCamino ? "disabled" : ""}>Camino</button>
-        <button class="btn btn-small" data-state="entregado" data-id="${o.id}" ${disEntregado ? "disabled" : ""}>Entregado</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  qsa("[data-state]").forEach((btn) => btn.addEventListener("click", repartidorUpdateStatus));
-  qsa("[data-factura]").forEach((btn) => btn.addEventListener("click", openInvoice));
-  qsa("[data-detalle]").forEach((btn) => btn.addEventListener("click", openInvoice));
-}
-
-async function repartidorUpdateStatus(ev) {
-  const orderId = ev.target.dataset.id;
-  const state = ev.target.dataset.state;
-
-  const order = ordersCache.find((o) => o.id == orderId);
-  if (!order) return;
-
-  const lbs = parseFloat(qs(`[data-lbs="${orderId}"]`).value || "0");
-
-  const map = {
-    recibido: "recibido",
-    camino: "en camino",
-    entregado: "entregado",
-  };
-  const targetStatus = map[state];
-
-  if (!canMoveTo(order.status, targetStatus)) {
-    return alert("No puedes retroceder el estado.");
-  }
-
-  try {
-    await apiPut(`/orders/${orderId}/status`, { status: targetStatus, lbs });
-    await loadAll();
-  } catch (err) {
-    alert(err.message || "Error cambiando estado");
-  }
-}
 
 /* ============================================================
    CAJERA: CREATE LOCAL ORDER
@@ -3598,31 +3065,7 @@ function renderCashierProduction() {
   });
 }
 
-async function onCreateLocalOrder(e) {
-  e.preventDefault();
 
-  const extras = Array.from(qs("#cashierForm").querySelectorAll(".chip input:checked"))
-    .map((i) => i.value);
-
-  const body = {
-    customerName: qs("#cashierName").value.trim(),
-    customerPhone: qs("#cashierPhone").value.trim(),
-    customerEmail: qs("#cashierEmail").value.trim(),
-    lbs: parseFloat(qs("#cashierLbs").value || "0"),
-    pack: qs("#cashierPack").value,
-    extras,
-    notes: qs("#cashierNotes").value.trim(),
-  };
-
-  try {
-    await apiPost("/local-orders", body);
-    alert("Pedido local creado ✅");
-    qs("#cashierForm").reset();
-    await loadAll();
-  } catch (err) {
-    alert(err.message || "Error creando pedido local");
-  }
-}
 
 /* ============================================================
    FACTURA (modal)
@@ -3631,83 +3074,7 @@ function money(n) {
   return `RD$ ${(Number(n) || 0).toFixed(2)}`;
 }
 
-function openInvoice(ev) {
-  const id = ev.target.dataset.factura || ev.target.dataset.detalle;
 
-  // buscar en domicilio + local
-  let order = ordersCache.find((o) => o.id == id);
-  if (!order) order = localOrdersCache.find((o) => o.id == id);
-  if (!order) return alert("Pedido no encontrado");
-
-  qs("#invoiceSubtitle").textContent = `Pedido #${order.id} (${order.channel || "domicilio"})`;
-
-  const attendedBy = order.repartidorName ? `Atendido por: ${order.repartidorName}` : "";
-  const linesHistory = (order.history || [])
-    .slice(-5)
-    .map((h) => `• ${h.status} (${h.by}) ${fmtTime(h.at)}`)
-    .join("<br/>");
-
-  qs("#invoiceClient").innerHTML = `
-    <strong>${order.userName}</strong><br/>
-    Zona: ${order.zone || "—"}<br/>
-    Dirección: ${order.address || "—"}<br/>
-    Tel: ${order.phone || "—"}<br/>
-    ${attendedBy ? attendedBy + "<br/>" : ""}
-    <span style="color:var(--muted); font-size:12.5px;">Últimos movimientos:</span><br/>
-    <span style="color:var(--muted); font-size:12.5px;">${linesHistory || "—"}</span>
-  `;
-
-  // ==== CALCULO DEMO ====
-  // Libra normal: RD$30/lb
-  // Extras: RD$75 c/u
-  // Pack puede sumarse RD$0 (por ahora es solo texto)
-  const lbs = Number(order.lbs || 0);
-  const base = lbs * 30;
-
-  const extrasCount = (order.extras || []).length;
-  const extrasTotal = extrasCount * 75;
-
-  const subtotal = base + extrasTotal;
-  const itbis = subtotal * 0.18;
-  const total = subtotal + itbis;
-
-  qs("#invoiceLines").innerHTML = `
-    <tr>
-      <td>Ropa por libra</td>
-      <td>${lbs.toFixed(1)} lb</td>
-      <td>${money(30)}</td>
-      <td>${money(base)}</td>
-    </tr>
-    ${
-      extrasCount
-        ? `<tr>
-            <td>Extras (${order.extras.join(", ")})</td>
-            <td>${extrasCount}</td>
-            <td>${money(75)}</td>
-            <td>${money(extrasTotal)}</td>
-          </tr>`
-        : ""
-    }
-  `;
-
-  qs("#invoiceSubtotal").textContent = money(subtotal);
-  qs("#invoiceItbis").textContent = money(itbis);
-  qs("#invoiceTotal").textContent = money(total);
-
-  // Footer demo
-  qs("#invoiceFooterText").textContent =
-    "Ejemplo de factura · ITBIS 18% · Cuentas: BHD 33008190011 | Popular 831576806";
-
-  // imprimir solo gestor / repartidor
-  const printBtn = qs("#invoicePrintBtn");
-  if (currentUser.role === "gestor" || currentUser.role === "repartidor") {
-    show(printBtn);
-  } else {
-    hide(printBtn);
-  }
-
-  qs("#invoiceModal").style.display = "flex";
-}
 
 function closeInvoice() {
   qs("#invoiceModal").style.display = "none";
@@ -3720,56 +3087,12 @@ function printInvoice() {
 /* ============================================================
    CANCEL ORDER
 ============================================================ */
-async function cancelOrder(orderId) {
-  const confirmed = await showConfirmDialog("Seguro que deseas cancelar el pedido?", {
-    title: "Cancelar pedido",
-    confirmLabel: "Si, cancelar",
-    cancelLabel: "Volver",
-  });
-  if (!confirmed) return;
 
-  try {
-    await apiPut(`/orders/${orderId}/cancel`, {});
-    alert("Pedido cancelado ✅");
-    await loadAll();
-  } catch (err) {
-    alert(err.message || "No se pudo cancelar");
-  }
-}
 
 /* ============================================================
    UI OVERRIDES
 ============================================================ */
-async function onCreateOrder(e) {
-  e.preventDefault();
 
-  const extras = Array.from(qs("#quickOrderForm").querySelectorAll(".chip input:checked"))
-    .map((i) => i.value);
-
-  const body = {
-    userId: currentUser.id,
-    address: qs("#homeAddress").value.trim(),
-    phone: qs("#homeContactPhone")?.value.trim() || "",
-    location: homeLocation ? { ...homeLocation } : null,
-    zone: qs("#homeZone").value,
-    serviceType: qs("#homePickupType").value,
-    date: qs("#homeDate").value,
-    time: qs("#homeTime").value,
-    pack: qs("#homeServicePack").value,
-    extras,
-    notes: qs("#homeNotes").value.trim(),
-  };
-
-  try {
-    await apiPost("/orders", body);
-    alert("Pedido creado correctamente.");
-    qs("#quickOrderForm").reset();
-    setDefaultFormValues();
-    await loadAll();
-  } catch (err) {
-    alert(err.message || "Error creando pedido");
-  }
-}
 
 function compactMoney(value) {
   const amount = Number(value) || 0;
@@ -5031,96 +4354,7 @@ function renderClientAccount() {
   });
 }
 
-function renderGestorHome() {
-  const today = new Date().toISOString().slice(0, 10);
-  const nonLocal = ordersCache.filter((o) => o.channel !== "local");
-  const pendientes = sortByNewestId(nonLocal.filter((o) => o.status === "pendiente"));
-  const enProceso = sortByNewestId(nonLocal.filter((o) => !["pendiente", "entregado", "cancelado"].includes(o.status)));
 
-  qs("#gestorActiveCount").textContent = String(nonLocal.length);
-  qs("#gestorTodayCount").textContent = String(nonLocal.filter((o) => o.date === today).length);
-  qs("#gestorClientsCount").textContent = String(new Set(nonLocal.map((o) => o.userId).filter(Boolean)).size);
-
-  const tbody = qs("#gestorAssignBody");
-  tbody.innerHTML = pendientes.length ? "" : tableEmptyRow(9, "No hay pedidos pendientes de asignar.");
-
-  pendientes.forEach((o) => {
-    const reps = repartidoresCache.filter((r) => r.zone === o.zone);
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${o.id}</td>
-      <td>${o.userName}</td>
-      <td>${o.zone}</td>
-      <td>${fmtDate(o.date)}</td>
-      <td>${renderStatusBadge(o.status)}</td>
-      <td>
-        <select data-assign="${o.id}">
-          <option value="">Elegir...</option>
-          ${reps.map((r) => `<option value="${r.id}">${r.name}</option>`).join("")}
-        </select>
-      </td>
-      <td><button class="btn btn-small" data-factura="${o.id}">Ver</button></td>
-      <td><button class="btn btn-small" data-detalle="${o.id}">Ver</button></td>
-      <td><button class="btn btn-primary btn-small" data-save="${o.id}">Asignar</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  let card = qs("#gestorInProgressCard");
-  if (!card) {
-    card = document.createElement("div");
-    card.className = "role-panel";
-    card.id = "gestorInProgressCard";
-    card.innerHTML = `
-      <div class="card card-spaced">
-        <div class="card-title">Pedidos asignados y en proceso</div>
-        <div class="card-secondary">Seguimiento de ruta, entrega y control operativo.</div>
-        <div class="role-table-wrapper">
-          <table class="role-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Cliente</th>
-                <th>Zona</th>
-                <th>Direccion</th>
-                <th>Fecha</th>
-                <th>Estado</th>
-                <th>Repartidor</th>
-                <th>Factura</th>
-                <th>Detalles</th>
-              </tr>
-            </thead>
-            <tbody id="gestorInProgressBody"></tbody>
-          </table>
-        </div>
-      </div>
-    `;
-    qs("#gestorHomePanel")?.appendChild(card);
-  }
-
-  const body2 = qs("#gestorInProgressBody");
-  body2.innerHTML = enProceso.length ? "" : tableEmptyRow(9, "No hay pedidos en proceso.");
-
-  enProceso.forEach((o) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${o.id}</td>
-      <td>${o.userName}</td>
-      <td>${o.zone}</td>
-      <td>${o.address || "Por definir"}</td>
-      <td>${fmtDate(o.date)} ${fmtTime(o.time)}</td>
-      <td>${renderStatusBadge(o.status)}</td>
-      <td>${o.repartidorName || "-"}</td>
-      <td><button class="btn btn-small" data-factura="${o.id}">Ver</button></td>
-      <td><button class="btn btn-small" data-detalle="${o.id}">Ver</button></td>
-    `;
-    body2.appendChild(tr);
-  });
-
-  qsa("[data-save]").forEach((btn) => btn.addEventListener("click", gestorAssign));
-  qsa("[data-factura]").forEach((btn) => btn.addEventListener("click", openInvoice));
-  qsa("[data-detalle]").forEach((btn) => btn.addEventListener("click", openInvoice));
-}
 
 function renderGestorRidersActivity() {
   const container = qs("#ridersActivity");
@@ -5170,76 +4404,9 @@ function renderGestorRidersActivity() {
   });
 }
 
-function renderGestorLocal() {
-  const tbody = qs("#localOrdersBody");
-  if (!tbody) return;
 
-  const localOrders = sortByNewestId(localOrdersCache);
-  tbody.innerHTML = localOrders.length ? "" : tableEmptyRow(8, "No hay pedidos registrados en el local.");
 
-  localOrders.forEach((o) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${o.id}</td>
-      <td>${o.userName}</td>
-      <td>${o.phone || "--"}</td>
-      <td>${Number(o.lbs || 0).toFixed(1)}</td>
-      <td>${o.pack}</td>
-      <td>${renderStatusBadge(o.status)}</td>
-      <td><button class="btn btn-small" data-factura="${o.id}">Ver</button></td>
-      <td><button class="btn btn-small" data-detalle="${o.id}">Ver</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
 
-  qsa("[data-factura]").forEach((btn) => btn.addEventListener("click", openInvoice));
-  qsa("[data-detalle]").forEach((btn) => btn.addEventListener("click", openInvoice));
-}
-
-function renderRepartidorHome() {
-  const assigned = sortByNewestId(ordersCache.filter((o) => o.repartidorId === currentUser.id));
-  const today = new Date().toISOString().slice(0, 10);
-  const todayCount = assigned.filter((o) => o.date === today).length;
-  const meta = 30;
-  const extra = Math.max(todayCount - meta, 0);
-  const comision = extra * 50;
-
-  qs("#repartidorMetaText").textContent = `Meta ${todayCount}/${meta}. Comision proyectada: ${money(comision)}`;
-
-  const tbody = qs("#repartidorOrdersBody");
-  tbody.innerHTML = assigned.length ? "" : tableEmptyRow(9, "No tienes pedidos asignados en este momento.");
-
-  assigned.forEach((o) => {
-    const stRecibido = "recibido";
-    const stCamino = "en camino";
-    const stEntregado = "entregado";
-    const tr = document.createElement("tr");
-
-    tr.innerHTML = `
-      <td>${o.id}</td>
-      <td>${o.userName}</td>
-      <td>${o.zone}</td>
-      <td>${o.address || "Por definir"}</td>
-      <td>${fmtDate(o.date)} ${fmtTime(o.time)}</td>
-      <td><input type="number" min="0" step="0.1" data-lbs="${o.id}" value="${Number(o.lbs || 0).toFixed(1)}"></td>
-      <td>${renderStatusBadge(o.status)}</td>
-      <td>
-        <button class="btn btn-small" data-factura="${o.id}">Factura</button>
-        <button class="btn btn-small" data-detalle="${o.id}">Detalles</button>
-      </td>
-      <td>
-        <button class="btn btn-small" data-state="recibido" data-id="${o.id}" ${!canMoveTo(o.status, stRecibido) ? "disabled" : ""}>Recibido</button>
-        <button class="btn btn-small" data-state="camino" data-id="${o.id}" ${!canMoveTo(o.status, stCamino) ? "disabled" : ""}>Camino</button>
-        <button class="btn btn-small" data-state="entregado" data-id="${o.id}" ${!canMoveTo(o.status, stEntregado) ? "disabled" : ""}>Entregado</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  qsa("[data-state]").forEach((btn) => btn.addEventListener("click", repartidorUpdateStatus));
-  qsa("[data-factura]").forEach((btn) => btn.addEventListener("click", openInvoice));
-  qsa("[data-detalle]").forEach((btn) => btn.addEventListener("click", openInvoice));
-}
 
 async function repartidorUpdateStatus(ev) {
   const trigger = ev.currentTarget || ev.target;
@@ -5306,59 +4473,7 @@ async function onCreateLocalOrder(e) {
   }
 }
 
-function openInvoice(ev) {
-  const id = ev.target.dataset.factura || ev.target.dataset.detalle;
-  let order = ordersCache.find((o) => o.id == id);
-  if (!order) order = localOrdersCache.find((o) => o.id == id);
-  if (!order) return alert("Pedido no encontrado");
 
-  qs("#invoiceSubtitle").textContent = `Pedido #${order.id} | ${order.channel || "domicilio"}`;
-
-  const attendedBy = order.repartidorName ? `Atendido por: ${order.repartidorName}` : "";
-  const historyLines = (order.history || [])
-    .slice(-5)
-    .map((h) => `&bull; ${escapeHtml(formatStatusLabel(h.status))} (${escapeHtml(getAuditActorLabel(h, { compact: true }))}) ${escapeHtml(fmtTime(h.at))}`)
-    .join("<br>");
-
-  qs("#invoiceClient").innerHTML = `
-    <strong>${order.userName || "Cliente"}</strong><br>
-    Zona: ${order.zone || "--"}<br>
-    Direccion: ${order.address || "Entrega en local"}<br>
-    Tel: ${order.phone || "--"}<br>
-    ${attendedBy ? `${attendedBy}<br>` : ""}
-    <span style="color:var(--muted); font-size:12.5px;">Ultimos movimientos:</span><br>
-    <span style="color:var(--muted); font-size:12.5px;">${historyLines || "--"}</span>
-  `;
-
-  const lbs = Number(order.lbs || 0);
-  const base = lbs * 30;
-  const extrasCount = (order.extras || []).length;
-  const extrasTotal = extrasCount * 75;
-  const subtotal = base + extrasTotal;
-  const itbis = subtotal * 0.18;
-  const total = subtotal + itbis;
-
-  qs("#invoiceLines").innerHTML = `
-    <tr>
-      <td>Ropa por libra</td>
-      <td>${lbs.toFixed(1)} lb</td>
-      <td>${money(30)}</td>
-      <td>${money(base)}</td>
-    </tr>
-    ${extrasCount ? `<tr><td>Extras (${order.extras.join(", ")})</td><td>${extrasCount}</td><td>${money(75)}</td><td>${money(extrasTotal)}</td></tr>` : ""}
-  `;
-
-  qs("#invoiceSubtotal").textContent = money(subtotal);
-  qs("#invoiceItbis").textContent = money(itbis);
-  qs("#invoiceTotal").textContent = money(total);
-  qs("#invoiceFooterText").textContent = "Ejemplo de factura | ITBIS 18% | Cuentas: BHD 33008190011 | Popular 831576806";
-
-  const printBtn = qs("#invoicePrintBtn");
-  if (currentUser.role === "gestor" || currentUser.role === "repartidor") show(printBtn);
-  else hide(printBtn);
-
-  qs("#invoiceModal").style.display = "flex";
-}
 
 async function cancelOrder(orderId) {
   const confirmed = await showConfirmDialog("Seguro que deseas cancelar el pedido?", {
@@ -5386,57 +4501,9 @@ function attachNavEvents() {
   });
 }
 
-function attachAuthEvents() {
-  qs("#loginForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    hide(qs("#loginMessage"));
-    try {
-      await login(qs("#loginEmail").value, qs("#loginPassword").value);
-      hide(qs("#authView"));
-      show(qs("#appView"));
-      await loadAll();
-    } catch (err) {
-      qs("#loginMessage").style.display = "block";
-      qs("#loginMessage").textContent = err.message || "Error de login";
-    }
-  });
 
-  qs("#registerForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    hide(qs("#registerMessage"));
-    try {
-      await register(
-        qs("#registerName").value,
-        qs("#registerEmail").value,
-        qs("#registerPassword").value
-      );
-      alert("Cuenta creada. Inicia sesión.");
-      qs("#registerForm").reset();
-    } catch (err) {
-      qs("#registerMessage").style.display = "block";
-      qs("#registerMessage").textContent = err.message || "Error de registro";
-    }
-  });
-}
 
-function attachAppEvents() {
-  qs("#logoutBtn").addEventListener("click", logout);
 
-  qs("#darkModeToggle").addEventListener("click", () => {
-    document.body.classList.toggle("theme-light");
-  });
-
-  qs("#quickOrderForm")?.addEventListener("submit", onCreateOrder);
-  qs("#cashierForm")?.addEventListener("submit", onCreateLocalOrder);
-
-  qs("#invoiceCloseBtn")?.addEventListener("click", closeInvoice);
-  qs("#invoicePrintBtn")?.addEventListener("click", printInvoice);
-
-  qs("#profileForm")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    alert("Perfil revisado. Para cambios sensibles, contacta soporte.");
-  });
-}
 
 function setAuthMode(mode = "login", { focusField = false } = {}) {
   const authCard = qs("#authView .auth-card");
@@ -5718,22 +4785,7 @@ function attachAuthEvents() {
   qs("#authActionForm")?.addEventListener("submit", handleAuthActionSubmit);
 }
 
-function attachAppEvents() {
-  qs("#logoutBtn")?.addEventListener("click", logout);
-  const themeToggle = qs("#darkModeToggle");
-  if (themeToggle && themeToggle.dataset.themeBound !== "1") {
-    themeToggle.dataset.themeBound = "1";
-    themeToggle.addEventListener("click", toggleTheme);
-  }
-  qs("#quickOrderForm")?.addEventListener("submit", onCreateOrder);
-  qs("#cashierForm")?.addEventListener("submit", onCreateLocalOrder);
-  qs("#invoiceCloseBtn")?.addEventListener("click", closeInvoice);
-  qs("#invoicePrintBtn")?.addEventListener("click", printInvoice);
-  qs("#profileForm")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    alert("Perfil revisado. Para cambios sensibles, contacta soporte.");
-  });
-}
+
 
 const PACKAGE_OPTIONS = [
   { value: "Lavado + Planchado", note: "Servicio completo para el dia a dia" },
@@ -5779,7 +4831,7 @@ const BUSINESS_PROFILE = {
 
 const BUSINESS_PHONE_DIGITS = "18294487876";
 const BUSINESS_ASSETS = {
-  logo: "assets/menta-header-logo.png",
+  logo: "assets/menta-header-logo-optimized-v1.webp",
   icon: "assets/menta-icon.svg",
 };
 
@@ -5853,10 +4905,7 @@ function describePricingMode(mode) {
   return PRICING_MODE_LABELS[mode] || "Por libra";
 }
 
-function bindInvoiceAndDetailButtons() {
-  qsa("[data-factura]").forEach((btn) => btn.addEventListener("click", openInvoice));
-  qsa("[data-detalle]").forEach((btn) => btn.addEventListener("click", openDetail));
-}
+
 
 function ensureDetailModal() {
   if (qs("#detailModal")) return;
@@ -6418,6 +5467,7 @@ function goToOrderWizardStep(targetStep, options = {}) {
   renderOrderWizardState();
 
   const activePanel = qs(`.order-step-panel[data-step="${currentOrderWizardStep}"]`);
+  if (currentOrderWizardStep === 1) prepareHomePickupMap();
   if (!options.skipScroll) {
     activePanel?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
@@ -6652,7 +5702,7 @@ function ensureAuthEnhancements() {
       <div class="public-landing ticket-public">
         <nav class="public-landing-nav ticket-public-nav" aria-label="Informacion principal de Menta Laundry">
           <a class="ticket-public-brand" href="#ticketPublicTop" aria-label="Ir al inicio de ${BUSINESS_PROFILE.name}">
-            <img src="${BUSINESS_ASSETS.logo}" alt="${BUSINESS_PROFILE.name}" />
+            <img src="${BUSINESS_ASSETS.logo}" width="335" height="190" alt="${BUSINESS_PROFILE.name}" />
           </a>
           <div class="ticket-public-nav-details">
             <a href="#publicContact">
@@ -6710,13 +5760,25 @@ function ensureAuthEnhancements() {
 
           <figure class="public-hero-visual ticket-public-visual">
             <div class="ticket-photo-frame">
-              <img
-                class="ticket-photo-image"
-                src="assets/menta-care-hero-v1.png"
-                alt="Profesional de Menta cuidando y doblando prendas limpias"
-              />
+              <picture>
+                <source
+                  type="image/webp"
+                  srcset="assets/menta-care-hero-768-v1.webp 768w, assets/menta-care-hero-1536-v1.webp 1536w"
+                  sizes="(max-width: 720px) calc(100vw - 36px), (max-width: 1180px) 50vw, 44vw"
+                />
+                <img
+                  class="ticket-photo-image"
+                  src="assets/menta-care-hero-v1.png"
+                  width="1536"
+                  height="1024"
+                  alt="Profesional de Menta cuidando y doblando prendas limpias"
+                  decoding="async"
+                  fetchpriority="high"
+                  loading="${getStoredToken() ? "lazy" : "eager"}"
+                />
+              </picture>
               <div class="ticket-photo-mark">
-                <img src="${BUSINESS_ASSETS.logo}" alt="" aria-hidden="true" />
+                <img src="${BUSINESS_ASSETS.logo}" width="335" height="190" alt="" aria-hidden="true" />
               </div>
             </div>
             <figcaption class="ticket-photo-caption">
@@ -7701,53 +6763,71 @@ function setHomeLocationFromMapPoint(lat, lng, options = {}) {
 
 function ensureHomeLeafletMap() {
   const mapEl = qs("#homePickupMap");
-  if (!mapEl || !window.L) return false;
+  if (!mapEl || !window.L?.map) return false;
 
   const center = getHomePickupMapCenter();
-  mapEl.classList.add("pickup-map-leaflet");
+  let nextMap = homePickupLeafletMap;
 
-  if (!homePickupLeafletMap) {
-    homePickupLeafletMap = window.L.map(mapEl, {
-      zoomControl: false,
-      attributionControl: true,
-      scrollWheelZoom: false,
-    }).setView([center.lat, center.lng], 14);
+  try {
+    if (!nextMap) {
+      nextMap = window.L.map(mapEl, {
+        zoomControl: false,
+        attributionControl: true,
+        scrollWheelZoom: false,
+      }).setView([center.lat, center.lng], 14);
 
-    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap",
-    }).addTo(homePickupLeafletMap);
+      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap",
+      }).addTo(nextMap);
 
-    window.L.control.zoom({ position: "bottomright" }).addTo(homePickupLeafletMap);
+      window.L.control.zoom({ position: "bottomright" }).addTo(nextMap);
 
-    homePickupLeafletMarker = window.L.marker([center.lat, center.lng], {
-      draggable: true,
-      autoPan: true,
-      title: "Punto de recogida",
-    }).addTo(homePickupLeafletMap);
+      const nextMarker = window.L.marker([center.lat, center.lng], {
+        draggable: true,
+        autoPan: true,
+        title: "Punto de recogida",
+      }).addTo(nextMap);
 
-    homePickupLeafletMarker.on("dragend", () => {
-      const point = homePickupLeafletMarker.getLatLng();
-      setHomeLocationFromMapPoint(point.lat, point.lng, {
-        source: "map-adjusted",
-        notify: "Punto de recogida ajustado.",
+      nextMarker.on("dragend", () => {
+        const point = nextMarker.getLatLng();
+        setHomeLocationFromMapPoint(point.lat, point.lng, {
+          source: "map-adjusted",
+          notify: "Punto de recogida ajustado.",
+        });
       });
-    });
 
-    homePickupLeafletMap.on("click", (event) => {
-      if (!homeLocation) {
-        showWarning("Primero activa el GPS para confirmar que estas cerca del punto de recogida.");
-        return;
-      }
-      setHomeLocationFromMapPoint(event.latlng.lat, event.latlng.lng, {
-        source: "map-adjusted",
-        notify: "Punto de recogida ajustado.",
+      nextMap.on("click", (event) => {
+        if (!homeLocation) {
+          showWarning("Primero activa el GPS para confirmar que estas cerca del punto de recogida.");
+          return;
+        }
+        setHomeLocationFromMapPoint(event.latlng.lat, event.latlng.lng, {
+          source: "map-adjusted",
+          notify: "Punto de recogida ajustado.",
+        });
       });
-    });
+
+      homePickupLeafletMap = nextMap;
+      homePickupLeafletMarker = nextMarker;
+    }
+
+    mapEl.classList.add("pickup-map-leaflet");
+    window.setTimeout(() => homePickupLeafletMap?.invalidateSize?.(), 40);
+    return true;
+  } catch (error) {
+    console.warn("Leaflet no pudo iniciar; se usa el mapa simplificado.", error);
+    try {
+      nextMap?.remove?.();
+    } catch {
+      // El fallback no debe bloquearse aunque la limpieza de Leaflet falle.
+    }
+    homePickupLeafletMap = null;
+    homePickupLeafletMarker = null;
+    homePickupLeafletAccuracy = null;
+    mapEl.classList.remove("pickup-map-leaflet");
+    return false;
   }
-
-  window.setTimeout(() => homePickupLeafletMap?.invalidateSize?.(), 40);
-  return true;
 }
 
 function renderHomePickupMap() {
@@ -7902,6 +6982,8 @@ function loadSavedRiderLocation() {
 }
 
 function captureHomeLocation() {
+  prepareHomePickupMap();
+
   if (!navigator.geolocation) {
     showWarning("Tu navegador no soporta geolocalizacion.");
     return;
@@ -9135,308 +8217,7 @@ async function onCreateOrder(e) {
   }
 }
 
-function renderGestorHome() {
-  const today = new Date().toISOString().slice(0, 10);
-  const nonLocal = ordersCache.filter((o) => o.channel !== "local");
-  const pendientes = sortByNewestId(nonLocal.filter((o) => o.status === "pendiente"));
-  const enProceso = sortByNewestId(nonLocal.filter((o) => isOperationalActiveStatus(o.status)));
-  const sinAsignar = nonLocal.filter((o) => !o.repartidorId && !isClosedOrderStatus(o.status));
-  const enRuta = nonLocal.filter((o) => isRiderRouteStatus(o.status));
-  const entregadosHoy = nonLocal.filter((o) => o.date === today && isFinalDeliveryStatus(o.status));
-  const zoneList = Array.from(new Set([...Object.keys(ZONE_CENTERS), ...nonLocal.map((o) => String(o.zone || "").trim()).filter(Boolean), ...repartidoresCache.map((r) => String(r.zone || "").trim()).filter(Boolean)]));
-  const getOrderUrgencyScore = (order) => {
-    const flags = getOrderHighlightFlags(order);
-    const status = String(order.status || "").toLowerCase();
-    let score = 0;
-    if (flags.delayed) score += 10;
-    if (flags.noGps) score += 4;
-    if (!order.repartidorId) score += 3;
-    if (status === "pendiente") score += 2;
-    if (normalizeStatusValue(status).includes("camino")) score += 1;
-    return score;
-  };
 
-  qs("#gestorActiveCount").textContent = String(nonLocal.length);
-  qs("#gestorTodayCount").textContent = String(nonLocal.filter((o) => o.date === today).length);
-  qs("#gestorClientsCount").textContent = String(new Set(nonLocal.map((o) => o.userId).filter(Boolean)).size);
-
-  let executiveCard = qs("#gestorExecutiveCard");
-  if (!executiveCard) {
-    executiveCard = document.createElement("div");
-    executiveCard.id = "gestorExecutiveCard";
-    executiveCard.className = "card card-spaced executive-card";
-    const anchor = qs("#gestorControlTowerCard") || qs("#gestorHomePanel .role-summary-row");
-    anchor?.insertAdjacentElement("afterend", executiveCard);
-  }
-
-  const priorityOrders = [...nonLocal]
-    .filter((o) => !isClosedOrderStatus(o.status))
-    .sort((a, b) => {
-      const scoreDiff = getOrderUrgencyScore(b) - getOrderUrgencyScore(a);
-      if (scoreDiff) return scoreDiff;
-      return compareByServiceMoment(a, b);
-    })
-    .slice(0, 3);
-
-  executiveCard.innerHTML = `
-    <div class="executive-head">
-      <div>
-        <div class="card-title">Panel ejecutivo</div>
-        <div class="card-secondary">Lo que necesita seguimiento inmediato en la operacion.</div>
-      </div>
-      <div class="estimate-badge">Hoy</div>
-    </div>
-    <div class="executive-grid">
-      <div class="executive-metric">
-        <span>Pendientes</span>
-        <strong>${pendientes.length}</strong>
-      </div>
-      <div class="executive-metric">
-        <span>Sin repartir</span>
-        <strong>${sinAsignar.length}</strong>
-      </div>
-      <div class="executive-metric">
-        <span>En ruta</span>
-        <strong>${enRuta.length}</strong>
-      </div>
-      <div class="executive-metric">
-        <span>Entregados hoy</span>
-        <strong>${entregadosHoy.length}</strong>
-      </div>
-    </div>
-    <div class="attention-board">
-      <div class="detail-section-title">Atencion prioritaria</div>
-      <div class="attention-list">
-        ${
-          priorityOrders.length
-            ? priorityOrders
-                .map(
-                  (order) => `
-                    <div class="attention-item">
-                      <div>
-                        <strong>Pedido #${order.id} | ${escapeHtml(order.userName)}</strong>
-                        <span>${escapeHtml(order.zone)} | ${escapeHtml(fmtDate(order.date))} ${escapeHtml(fmtTime(order.time))}</span>
-                        <div class="signal-chip-row">${renderSignalChips(order)}</div>
-                      </div>
-                      <div class="attention-side">
-                        ${renderStatusBadge(order.status)}
-                        <small>${escapeHtml(order.repartidorName || "Sin repartidor")}</small>
-                      </div>
-                    </div>
-                  `
-                )
-                .join("")
-            : `<div class="attention-empty">No hay alertas prioritarias en este momento.</div>`
-        }
-      </div>
-    </div>
-  `;
-
-  let geoCard = qs("#gestorGeoCard");
-  if (!geoCard) {
-    geoCard = document.createElement("div");
-    geoCard.id = "gestorGeoCard";
-    geoCard.className = "card card-spaced gestor-geo-card";
-    executiveCard.insertAdjacentElement("afterend", geoCard);
-  }
-
-  const zoneCards = zoneList.map((zone) => {
-    const activeOrders = nonLocal.filter((o) => {
-      const status = String(o.status || "").toLowerCase();
-      return (String(o.zone || "").trim() || "Distrito Nacional") === zone && !isClosedOrderStatus(status);
-    });
-    const gpsCount = activeOrders.filter((o) => getOrderHighlightFlags(o).hasGps).length;
-    const noGpsCount = activeOrders.filter((o) => getOrderHighlightFlags(o).noGps).length;
-    const delayedCount = activeOrders.filter((o) => getOrderHighlightFlags(o).delayed).length;
-    const routeCount = activeOrders.filter((o) => isRiderRouteStatus(o.status)).length;
-    const zoneRiders = repartidoresCache.filter((r) => (String(r.zone || "").trim() || "Distrito Nacional") === zone);
-    const hotOrders = [...activeOrders]
-      .sort((a, b) => {
-        const scoreDiff = getOrderUrgencyScore(b) - getOrderUrgencyScore(a);
-        if (scoreDiff) return scoreDiff;
-        return compareByServiceMoment(a, b);
-      })
-      .slice(0, 2);
-    const mapLink = getGestorZoneMapLink(zone);
-
-    return `
-      <div class="zone-overview-card">
-        <div class="zone-overview-head">
-          <div>
-            <strong>${escapeHtml(zone)}</strong>
-            <span>${activeOrders.length} pedidos activos | ${zoneRiders.length} repartidores en cobertura</span>
-          </div>
-          ${mapLink ? `<a class="btn btn-small btn-outline" href="${mapLink}" target="_blank" rel="noreferrer">Abrir zona</a>` : ""}
-        </div>
-        <div class="zone-overview-metrics">
-          <div class="zone-overview-metric">
-            <span>Con GPS</span>
-            <strong>${gpsCount}</strong>
-          </div>
-          <div class="zone-overview-metric">
-            <span>Sin GPS</span>
-            <strong>${noGpsCount}</strong>
-          </div>
-          <div class="zone-overview-metric">
-            <span>Atrasados</span>
-            <strong>${delayedCount}</strong>
-          </div>
-          <div class="zone-overview-metric">
-            <span>En ruta</span>
-            <strong>${routeCount}</strong>
-          </div>
-        </div>
-        <div class="zone-order-list">
-          ${
-            hotOrders.length
-              ? hotOrders
-                  .map((order) => `
-                    <div class="zone-order-item">
-                      <div>
-                        <strong>#${order.id} | ${escapeHtml(order.userName)}</strong>
-                        <span>${escapeHtml(fmtDate(order.date))} ${escapeHtml(fmtTime(order.time))} | ${escapeHtml(order.repartidorName || "Sin repartidor")}</span>
-                      </div>
-                      <div class="signal-chip-row">${renderSignalChips(order)}</div>
-                    </div>
-                  `)
-                  .join("")
-              : `<div class="zone-order-empty">Sin alertas activas en esta zona.</div>`
-          }
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  geoCard.innerHTML = `
-    <div class="executive-head">
-      <div>
-        <div class="card-title">Cobertura GPS por zonas</div>
-        <div class="card-secondary">Visibilidad rapida de pedidos listos para ruta, faltantes de GPS y atrasos.</div>
-      </div>
-      <div class="estimate-badge">Mapa operativo</div>
-    </div>
-    <div class="zone-overview-grid">${zoneCards}</div>
-  `;
-
-  const tbody = qs("#gestorAssignBody");
-  if (!tbody) return;
-  tbody.innerHTML = pendientes.length ? "" : tableEmptyRow(9, "No hay pedidos pendientes de asignar.");
-
-  pendientes.forEach((o) => {
-    const repsByZone = repartidoresCache.filter((r) => r.zone === o.zone);
-    const reps = repsByZone.length ? repsByZone : repartidoresCache;
-    const tr = document.createElement("tr");
-    const flags = getOrderHighlightFlags(o);
-    const location = getOrderLocation(o);
-    const zoneMeta = [];
-    if (location && Number.isFinite(flags.distanceFromZone)) zoneMeta.push(`${flags.distanceFromZone.toFixed(1)} km del centro`);
-    zoneMeta.push(flags.zoneMismatch ? `GPS sugiere ${flags.inferredZone}` : getGeoStatusLabel(o));
-    tr.className = getGestorRowClass(o);
-    tr.innerHTML = `
-      <td>${o.id}</td>
-      <td>
-        <div class="table-main">${escapeHtml(o.userName)}</div>
-        <div class="table-sub">${escapeHtml(o.phone || o.email || "Sin contacto directo")}</div>
-        <div class="signal-chip-row">${renderSignalChips(o)}</div>
-      </td>
-      <td>
-        <div class="table-main">${escapeHtml(o.zone)}</div>
-        <div class="table-sub">${escapeHtml(zoneMeta.join(" | "))}</div>
-      </td>
-      <td>
-        <div class="table-main">${fmtDate(o.date)} ${fmtTime(o.time)}</div>
-        <div class="table-sub">${flags.delayed ? "Fuera de hora programada" : "Programacion activa"}</div>
-      </td>
-      <td>${renderStatusBadge(o.status)}</td>
-      <td>
-        <select data-assign="${o.id}">
-          <option value="">Elegir...</option>
-          ${reps.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}${r.zone === o.zone ? "" : ` (${escapeHtml(r.zone)})`}</option>`).join("")}
-        </select>
-      </td>
-      <td><button class="btn btn-small" data-factura="${o.id}">Factura</button></td>
-      <td><button class="btn btn-small btn-outline" data-detalle="${o.id}">Detalle</button></td>
-      <td><button class="btn btn-primary btn-small" data-save="${o.id}">Asignar</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  let card = qs("#gestorInProgressCard");
-  if (!card) {
-    card = document.createElement("div");
-    card.className = "role-panel";
-    card.id = "gestorInProgressCard";
-    card.innerHTML = `
-      <div class="card card-spaced">
-        <div class="card-title">Pedidos asignados y en proceso</div>
-        <div class="card-secondary">Seguimiento de ruta, entrega y control operativo.</div>
-        <div class="role-table-wrapper">
-          <table class="role-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Cliente</th>
-                <th>Zona</th>
-                <th>Direccion</th>
-                <th>Fecha</th>
-                <th>Estado</th>
-                <th>Repartidor</th>
-                <th>Factura</th>
-                <th>Detalle</th>
-              </tr>
-            </thead>
-            <tbody id="gestorInProgressBody"></tbody>
-          </table>
-        </div>
-      </div>
-    `;
-    qs("#gestorHomePanel")?.appendChild(card);
-  }
-
-  const body2 = qs("#gestorInProgressBody");
-  if (!body2) return;
-  body2.innerHTML = enProceso.length ? "" : tableEmptyRow(9, "No hay pedidos en proceso.");
-
-  enProceso.forEach((o) => {
-    const tr = document.createElement("tr");
-    const flags = getOrderHighlightFlags(o);
-    const location = getOrderLocation(o);
-    const zoneMeta = getGestorZoneValidationText(o, flags);
-    tr.className = getGestorRowClass(o);
-    tr.innerHTML = `
-      <td>${o.id}</td>
-      <td>
-        <div class="table-main">${escapeHtml(o.userName)}</div>
-        <div class="table-sub">${escapeHtml(o.phone || o.email || "Sin contacto directo")}</div>
-        <div class="signal-chip-row">${renderSignalChips(o)}</div>
-      </td>
-      <td>
-        <div class="table-main">${escapeHtml(o.zone)}</div>
-        <div class="table-sub">${escapeHtml(zoneMeta)}</div>
-      </td>
-      <td>
-        <div class="table-main">${escapeHtml(o.address || "Por definir")}</div>
-        <div class="table-sub">${escapeHtml(location ? formatCoordinatePair(location) : "Sin coordenadas registradas")}</div>
-      </td>
-      <td>
-        <div class="table-main">${fmtDate(o.date)} ${fmtTime(o.time)}</div>
-        <div class="table-sub">${flags.delayed ? "Requiere seguimiento inmediato" : "Ruta en seguimiento"}</div>
-      </td>
-      <td>${renderStatusBadge(o.status)}</td>
-      <td>
-        <div class="table-main">${escapeHtml(o.repartidorName || "-")}</div>
-        <div class="table-sub">${escapeHtml(location ? getGeoStatusLabel(o) : "Coordenadas pendientes")}</div>
-      </td>
-      <td><button class="btn btn-small" data-factura="${o.id}">Factura</button></td>
-      <td><button class="btn btn-small btn-outline" data-detalle="${o.id}">Detalle</button></td>
-    `;
-    body2.appendChild(tr);
-  });
-
-  Array.from(tbody.querySelectorAll("[data-save]")).forEach((btn) => btn.addEventListener("click", gestorAssign));
-  bindInvoiceAndDetailButtons(tbody);
-  bindInvoiceAndDetailButtons(body2);
-}
 
 function getGestorOrderUrgencyScore(order) {
   const flags = getOrderHighlightFlags(order);

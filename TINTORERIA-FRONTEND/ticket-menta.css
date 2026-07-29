@@ -385,6 +385,12 @@ body.public-landing-mode .ticket-photo-frame {
   overflow: hidden;
 }
 
+body.public-landing-mode .ticket-photo-frame picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 body.public-landing-mode .ticket-photo-image {
   width: 100%;
   height: 100%;
@@ -406,6 +412,7 @@ body.public-landing-mode .ticket-photo-mark {
 
 body.public-landing-mode .ticket-photo-mark img {
   width: 100%;
+  height: auto;
   display: block;
 }
 
