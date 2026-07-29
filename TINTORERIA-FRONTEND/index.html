@@ -7,12 +7,147 @@
   <meta name="menta-api-base" content="" />
   <title>Menta Laundry</title>
   <link rel="icon" href="assets/menta-icon.svg" type="image/svg+xml" />
+  <style>
+    html {
+      background: #f5f1e8;
+    }
+
+    #applicationShell[hidden],
+    #appBootScreen[hidden],
+    .app-boot-retry[hidden] {
+      display: none !important;
+    }
+
+    body.app-booting {
+      min-height: 100vh;
+      margin: 0;
+      overflow: hidden;
+      background: #f5f1e8;
+      color: #102a33;
+    }
+
+    .app-boot-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483000;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      padding: 24px;
+      background: #f5f1e8;
+      color: #102a33;
+      font-family: Aptos, "Segoe UI", Arial, sans-serif;
+    }
+
+    .app-boot-card {
+      width: min(360px, 100%);
+      display: grid;
+      justify-items: center;
+      gap: 14px;
+      padding: 30px 18px;
+      border-top: 1px solid #cfc7bb;
+      border-bottom: 1px solid #cfc7bb;
+      text-align: center;
+    }
+
+    .app-boot-card img {
+      width: 132px;
+      height: auto;
+      display: block;
+    }
+
+    .app-boot-kicker {
+      color: #2f8f74;
+      font: 700 0.68rem/1.4 "SFMono-Regular", Consolas, monospace;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .app-boot-copy {
+      margin: 0;
+      color: #60716f;
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+
+    .app-boot-progress {
+      width: min(220px, 72vw);
+      height: 2px;
+      overflow: hidden;
+      background: #dcd5ca;
+    }
+
+    .app-boot-progress span {
+      display: block;
+      width: 42%;
+      height: 100%;
+      background: #2f8f74;
+      animation: mentaBootProgress 1.15s ease-in-out infinite alternate;
+      transform-origin: left center;
+    }
+
+    .app-boot-retry {
+      min-height: 42px;
+      padding: 10px 18px;
+      border: 1px solid #2f8f74;
+      border-radius: 4px;
+      background: transparent;
+      color: #102a33;
+      font: 700 0.82rem/1 Aptos, "Segoe UI", Arial, sans-serif;
+      cursor: pointer;
+    }
+
+    @keyframes mentaBootProgress {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(238%); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .app-boot-progress span {
+        width: 100%;
+        animation: none;
+      }
+    }
+  </style>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="style.css?v=20260723-1" />
   <link rel="stylesheet" href="ticket-menta.css?v=20260728-13" />
 </head>
 
-<body>
+<body class="public-landing-mode theme-light app-booting" data-role="public" data-app-state="booting">
+  <div
+    id="appBootScreen"
+    class="app-boot-screen"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+    aria-busy="true"
+  >
+    <div class="app-boot-card">
+      <img src="assets/menta-header-logo.png" width="670" height="380" alt="Menta Laundry" />
+      <span id="appBootKicker" class="app-boot-kicker">Cuidado textil / Santo Domingo</span>
+      <p id="appBootCopy" class="app-boot-copy">Preparando tu experiencia Menta...</p>
+      <div id="appBootProgress" class="app-boot-progress" aria-hidden="true"><span></span></div>
+      <button id="appBootRetry" class="app-boot-retry" type="button" hidden>Intentar de nuevo</button>
+    </div>
+  </div>
+
+  <noscript>
+    <style>
+      #appBootScreen { display: none !important; }
+    </style>
+    <section class="app-boot-screen" aria-labelledby="appNoScriptTitle">
+      <div class="app-boot-card">
+        <img src="assets/menta-header-logo.png" width="670" height="380" alt="Menta Laundry" />
+        <span class="app-boot-kicker">Acceso a Menta Laundry</span>
+        <p id="appNoScriptTitle" class="app-boot-copy">
+          Esta aplicación necesita JavaScript para iniciar sesión y consultar tus pedidos.
+        </p>
+      </div>
+    </section>
+  </noscript>
+
+  <div id="applicationShell" hidden inert aria-hidden="true">
   <!-- TOPBAR -->
   <header class="topbar">
     <div class="topbar-left">
@@ -582,9 +717,10 @@
       </div>
     </div>
   </div>
+  </div>
 
   <script src="config.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="app.js?v=20260728-5"></script>
+  <script src="app.js?v=20260729-1"></script>
 </body>
 </html>

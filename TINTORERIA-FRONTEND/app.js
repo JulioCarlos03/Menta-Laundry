@@ -98,6 +98,94 @@ const qsa = (s) => Array.from(document.querySelectorAll(s));
 function show(el) { if (el) el.style.display = ""; }
 function hide(el) { if (el) el.style.display = "none"; }
 
+function revealApplicationShell() {
+  const applicationShell = qs("#applicationShell");
+  const bootScreen = qs("#appBootScreen");
+
+  if (document.body.dataset.appState === "ready" || document.body.dataset.appState === "revealing") {
+    return;
+  }
+
+  if (applicationShell) {
+    applicationShell.hidden = false;
+  }
+  document.body.dataset.appState = "revealing";
+
+  let revealFrameCount = 0;
+  let renderedFrameCount = 0;
+  const finishRevealWhenRendered = () => {
+    if (document.body.dataset.appState === "error") return;
+
+    const targetView = document.body.classList.contains("public-landing-mode")
+      ? qs("#ticketPublicTop")
+      : qs("#appView");
+    const targetRect = targetView?.getBoundingClientRect();
+    const targetStyle = targetView ? getComputedStyle(targetView) : null;
+    const targetRendered = Boolean(
+      targetRect?.width &&
+      targetRect?.height &&
+      targetStyle?.display !== "none" &&
+      targetStyle?.visibility !== "hidden" &&
+      Number(targetStyle?.opacity || 1) > 0
+    );
+    renderedFrameCount = targetRendered ? renderedFrameCount + 1 : 0;
+
+    if (renderedFrameCount < 2 && revealFrameCount < 60) {
+      revealFrameCount += 1;
+      requestAnimationFrame(finishRevealWhenRendered);
+      return;
+    }
+
+    if (!targetRendered) {
+      showApplicationBootError();
+      return;
+    }
+
+    if (applicationShell) {
+      applicationShell.removeAttribute("inert");
+      applicationShell.removeAttribute("aria-hidden");
+    }
+    if (bootScreen) {
+      bootScreen.setAttribute("aria-busy", "false");
+      bootScreen.hidden = true;
+    }
+    document.body.classList.remove("app-booting");
+    document.body.dataset.appState = "ready";
+  };
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(finishRevealWhenRendered);
+  });
+}
+
+function showApplicationBootError() {
+  const applicationShell = qs("#applicationShell");
+  const bootScreen = qs("#appBootScreen");
+  const bootKicker = qs("#appBootKicker");
+  const bootCopy = qs("#appBootCopy");
+  const bootProgress = qs("#appBootProgress");
+  const retryButton = qs("#appBootRetry");
+
+  if (applicationShell) {
+    applicationShell.hidden = true;
+    applicationShell.setAttribute("inert", "");
+    applicationShell.setAttribute("aria-hidden", "true");
+  }
+  if (!bootScreen) return;
+  bootScreen.hidden = false;
+  bootScreen.setAttribute("role", "alert");
+  bootScreen.setAttribute("aria-busy", "false");
+  if (bootKicker) bootKicker.textContent = "No pudimos abrir Menta";
+  if (bootCopy) bootCopy.textContent = "Revisa tu conexión e inténtalo nuevamente.";
+  if (bootProgress) bootProgress.hidden = true;
+  if (retryButton) {
+    retryButton.hidden = false;
+    retryButton.onclick = () => window.location.reload();
+  }
+  document.body.classList.add("app-booting");
+  document.body.dataset.appState = "error";
+}
+
 const USER_STORAGE_KEY = "tintouser";
 const TOKEN_STORAGE_KEY = "tintotoken";
 const THEME_STORAGE_KEY = "tintotheme";
@@ -12077,51 +12165,66 @@ function attachAppEvents() {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
-  ensureUIEnhancements();
-  ensureNoticeStack();
-  ensureConfirmDialog();
-  ensureDeliveryProofDialog();
-  ensureAppLoadingBanner();
-  ensureAppEntryOverlay();
-  flushPendingNotices();
-  loadSavedRiderLocation();
-  loadGestorZoneFilter();
+  let applicationReady = false;
 
-  const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
-  applyTheme(savedTheme === "dark" ? "dark" : "light", false);
+  try {
+    ensureUIEnhancements();
+    ensureNoticeStack();
+    ensureConfirmDialog();
+    ensureDeliveryProofDialog();
+    ensureAppLoadingBanner();
+    ensureAppEntryOverlay();
+    flushPendingNotices();
+    loadSavedRiderLocation();
+    loadGestorZoneFilter();
 
-  setDefaultFormValues();
-  syncSessionChrome();
+    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    applyTheme(savedTheme === "dark" ? "dark" : "light", false);
 
-  attachNavEvents();
-  attachAuthEvents();
-  attachAppEvents();
-  attachAutoRefreshEvents();
+    setDefaultFormValues();
+    syncSessionChrome();
 
-  const handledAuthLink = await handleAuthLinkState();
-  if (handledAuthLink) {
-    return;
-  }
+    attachNavEvents();
+    attachAuthEvents();
+    attachAppEvents();
+    attachAutoRefreshEvents();
 
-  const savedToken = getStoredToken();
-  if (savedToken) {
-    try {
-      await restoreSessionFromToken();
-      revealAuthenticatedApp("Recuperando tu panel...");
-      await loadAll();
-      await hideAppEntryOverlay();
-    } catch (_error) {
-      await hideAppEntryOverlay();
-      clearSession();
+    const handledAuthLink = await handleAuthLinkState();
+    if (handledAuthLink) {
+      applicationReady = true;
+      return;
+    }
+
+    const savedToken = getStoredToken();
+    if (savedToken) {
+      try {
+        const restoredUser = await restoreSessionFromToken();
+        if (!restoredUser) throw new Error("No se pudo restaurar la sesión.");
+        revealAuthenticatedApp("Recuperando tu panel...");
+        applicationReady = true;
+        revealApplicationShell();
+        await loadAll();
+        await hideAppEntryOverlay();
+      } catch (_error) {
+        await hideAppEntryOverlay();
+        clearSession();
+        show(qs("#authView"));
+        hide(qs("#appView"));
+        syncSessionChrome();
+        warmBackendConnection();
+      }
+    } else {
       show(qs("#authView"));
       hide(qs("#appView"));
       syncSessionChrome();
       warmBackendConnection();
     }
-  } else {
-    show(qs("#authView"));
-    hide(qs("#appView"));
-    syncSessionChrome();
-    warmBackendConnection();
+
+    applicationReady = true;
+  } catch (error) {
+    console.error("No se pudo completar el arranque de la aplicación.", error);
+    showApplicationBootError();
+  } finally {
+    if (applicationReady) revealApplicationShell();
   }
 });
